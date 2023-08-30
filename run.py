@@ -10,10 +10,6 @@ from const import *
 import time
 from resonator import Resonator
 
-import os
-os.environ['NUMBAPRO_LIBDEVICE'] = "/usr/local/lib/python3.10/dist-packages/jaxlib/cuda/nvvm/libdevice"
-os.environ['NUMBAPRO_NVVM'] = "/usr/local/cuda-11.8/nvvm/lib64/libnvvm.so"
-
 # %%
 RUN_MODE = "single" # "single", "d-f-v", "n-i"
 VERBOSE = 0
@@ -28,7 +24,6 @@ def v_name(num_codevectors):
         for i in range(len(num_codevectors)):
             s = f"{num_codevectors[i]},"
         return s[:-1] + "v"
-
 
 def run_factorization(
         m = VSA_MODEL,
@@ -154,7 +149,7 @@ def test_noise_iter(device="cpu"):
     with open(json_file, 'w') as f:
         json.dump(table, f)
         print(Fore.GREEN + f"Saved table to {json_file}" + Fore.RESET)
-
+# %%
 
 if __name__ == '__main__':
     table = {}

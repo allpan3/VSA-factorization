@@ -1,9 +1,11 @@
+# %%
 import torch.nn as nn
 import torchhd as hd
 from typing import Literal
 import torch
 from vsa import VSA
 
+# %%
 class Resonator(nn.Module):
     def __init__(self, vsa:VSA, codebooks, norm=False, activation='NONE', iterations=100):
         super(Resonator, self).__init__()
@@ -89,3 +91,4 @@ class Resonator(nn.Module):
 
             # Seems like BSCTensor is automatically normalized after bundle
             return input
+# %%
