@@ -12,7 +12,7 @@ from const import *
 import time
 
 # %%
-RUN_MODE = "n-i" # "single", "d-f-v", "n-i"
+RUN_MODE = "d-f-v" # "single", "d-f-v", "n-i"
 VERBOSE = 2
 NUM_SAMPLES = 400 # test data
 
