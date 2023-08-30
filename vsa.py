@@ -75,7 +75,7 @@ class VSA:
         Sample `num_samples` random vectors from the dictionary, or multiple vectors superposed
         '''
         labels = [None] * num_samples
-        vectors = hd.empty(num_samples, self.dim, dtype=self.dtype, device=self.device)
+        vectors = torch.empty((num_samples, self.dim), dtype=self.dtype, device=self.device)
         for i in range(num_samples):
             labels[i]= [tuple([random.randint(0, len(self.codebooks[i])-1) for i in range(self.num_factors)]) for j in range(num_vectors_supoerposed)]
             vectors[i] = self.apply_noise(self.__getitem__(labels[i]), noise)

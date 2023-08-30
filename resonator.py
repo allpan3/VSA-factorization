@@ -2,12 +2,15 @@ import torch.nn as nn
 import torchhd as hd
 from typing import Literal
 import torch
+from vsa import VSA
 
 class Resonator(nn.Module):
-    def __init__(self, codebooks, norm=False, activation='NONE', iterations=100):
+    def __init__(self, vsa:VSA, codebooks, norm=False, activation='NONE', iterations=100):
         super(Resonator, self).__init__()
+        self.vsa = vsa
         self.codebooks = codebooks
         init_estimates = hd.multiset(codebooks)
+
         if norm:
             init_estimates = self.normalize(init_estimates)
         self.norm = norm
@@ -28,7 +31,10 @@ class Resonator(nn.Module):
                 break
             old_estimates = estimates
 
-        return estimates, k 
+        # outcome: the indices of the codevectors in the codebooks
+        outcome = self.vsa.cleanup(estimates)
+
+        return outcome, k 
 
 
     def resonator_stage(self,
@@ -57,16 +63,19 @@ class Resonator(nn.Module):
 
             # First bind all the other estimates together: z * y, x * z, y * z
             inv_others = hd.multibind(inv_estimates)
+
             # Then unbind all other estimates from the input: s * (x * y), s * (x * z), s * (y * z)
             new_estimates = hd.bind(input.unsqueeze(-2), inv_others)
 
             similarity = hd.dot_similarity(new_estimates.unsqueeze(-2), codebooks)
+
             if (activation == 'ABS'):
                 similarity = torch.abs(similarity)
 
             output = hd.dot_similarity(similarity, codebooks.transpose(-2, -1)).squeeze(-2)
             # This should be normalizing back to 1 and -1, but sign can potentially keep 0 at 0. It's very unlikely to see a 0 and sign() is fast 
             output = output.sign()
+            
             return output
 
     

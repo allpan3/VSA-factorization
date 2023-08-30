@@ -10,6 +10,10 @@ from const import *
 import time
 from resonator import Resonator
 
+import os
+os.environ['NUMBAPRO_LIBDEVICE'] = "/usr/local/lib/python3.10/dist-packages/jaxlib/cuda/nvvm/libdevice"
+os.environ['NUMBAPRO_NVVM'] = "/usr/local/cuda-11.8/nvvm/lib64/libnvvm.so"
+
 # %%
 RUN_MODE = "single" # "single", "d-f-v", "n-i"
 VERBOSE = 0
@@ -59,9 +63,9 @@ def run_factorization(
         torch.save((labels, samples), sample_file)
 
     samples = samples.to(device)
-    codebooks = torch.stack(vsa.codebooks)
+    codebooks = torch.stack(vsa.codebooks).to(device)
 
-    resonator_network = Resonator(codebooks, norm=norm, activation=act, iterations=it).to(device)
+    resonator_network = Resonator(vsa, codebooks, norm=norm, activation=act, iterations=it).to(device)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -69,10 +73,7 @@ def run_factorization(
         input = samples[j]
         label = labels[j]
 
-        output, convergence = resonator_network(input)
-
-        # outcome: the indices of the codevectors in the codebooks
-        outcome = vsa.cleanup(output)
+        outcome, convergence = resonator_network(input)
 
         if (outcome not in label):
             incorrect += 1
