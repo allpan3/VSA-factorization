@@ -98,16 +98,15 @@ class VSA:
         n must match the number of factors
         '''
         assert(len(input) == self.num_factors)
-        values = [None] * self.num_factors
         indices = [None] * self.num_factors
         if self.model == 'MAP':
             for i in range(self.num_factors):
-                value, index = torch.max(hd.dot_similarity(input[i], self.codebooks[i]), dim=-1)
-                values[i] = value.item()
-                indices[i] = index.item()
+                winner = torch.argmax(torch.abs(hd.dot_similarity(input[i], self.codebooks[i])))
+                # winner = torch.argmax(hd.dot_similarity(input[i], self.codebooks[i]))
+                indices[i] = winner.item()
         # elif self.model == "BSC":
 
-        return tuple(values), tuple(indices)
+        return tuple(indices)
 
 
     def __getitem__(self, key: list):
