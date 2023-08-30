@@ -99,6 +99,7 @@ def run_factorization(
         it = ITERATIONS,
         nom = NORMALIZE,
         act = ACTIVATION,
+        device = "cpu",
         verbose = 0):
 
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
@@ -111,6 +112,8 @@ def run_factorization(
         num_codevectors=v
     )
 
+    vsa = vsa.to(device)
+
     # Generate test samples
     sample_file = os.path.join(test_dir, f"samples-{NUM_SAMPLES}s-{n}n.pt")
     if (os.path.exists(sample_file)):
@@ -118,6 +121,8 @@ def run_factorization(
     else:   
         labels, samples = vsa.sample(NUM_SAMPLES, num_vectors_supoerposed=1, noise=n)
         torch.save((labels, samples), sample_file)
+
+    print(f"samples is CUDA: {samples.is_cuda}")
 
     codebooks = torch.stack(vsa.codebooks)
     init_estimate = hd.multiset(codebooks)
@@ -154,7 +159,7 @@ def run_factorization(
     return accuracy, unconverged, {str((m, d, f, v, n, it, nom, act)): (accuracy, unconverged)}
 
 # Test various dimensions, factors, and codevectors
-def test_dim_fac_vec():
+def test_dim_fac_vec(device="cpu"):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     table = {}
@@ -170,7 +175,7 @@ def test_dim_fac_vec():
                     print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
                     continue
 
-                accuracy, _, entry = run_factorization(d=d, f=f, v=v)
+                accuracy, _, entry = run_factorization(d=d, f=f, v=v, device=device)
 
                 # If accuracy is less than 30%, skip the rest of the tests
                 if accuracy <= 0.3:
@@ -186,7 +191,7 @@ def test_dim_fac_vec():
         json.dump(table, f)
         print(Fore.GREEN + f"Saved table to {json_file}" + Fore.RESET)
 
-def test_noise_iter():
+def test_noise_iter(device="cpu"):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     table = {}
@@ -200,7 +205,7 @@ def test_noise_iter():
                 continue
 
             print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
-            accuracy, unconverged, entry = run_factorization(n=n, it=it)
+            accuracy, unconverged, entry = run_factorization(n=n, it=it, device=device)
             # If always converged, more iterations don't matter
             if (unconverged[0] + unconverged[1]) == 0:
                 skip_rest_i = True
@@ -219,13 +224,16 @@ def test_noise_iter():
 if __name__ == '__main__':
     table = {}
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using {} device".format(device))
+
     start = time.time()
     if RUN_MODE == "single":
-        run_factorization(verbose=VERBOSE)
+        run_factorization(device=device, verbose=VERBOSE)
     elif RUN_MODE == "d-f-v":
-        test_dim_fac_vec()
+        test_dim_fac_vec(device=device)
     elif RUN_MODE == "n-i":
-        test_noise_iter()
+        test_noise_iter(device=device)
     # elif RUN_MODE == ""
 
     end = time.time()

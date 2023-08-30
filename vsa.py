@@ -9,7 +9,7 @@ from typing import List
 import random
 
 # %%
-class VSA:
+class VSA(torch.nn.Module):
     # Dictionary of all vectors composed from factors
     dict = {}
 
@@ -21,6 +21,7 @@ class VSA:
             num_factors: int,
             num_codevectors: int or List[int], # number of vectors per factor, or list of number of codevectors for each factor
         ):
+        super(VSA, self).__init__()
 
         self.root = root
         self.model = model
@@ -72,7 +73,7 @@ class VSA:
         Sample `num_samples` random vectors from the dictionary, or multiple vectors superposed
         '''
         labels = [None] * num_samples
-        vectors = [None] * num_samples
+        vectors = torch.empty((num_samples, self.dim), dtype=self.dtype)
         for i in range(num_samples):
             labels[i]= [tuple([random.randint(0, len(self.codebooks[i])-1) for i in range(self.num_factors)]) for j in range(num_vectors_supoerposed)]
             vectors[i] = self.apply_noise(self.__getitem__(labels[i]), noise)
