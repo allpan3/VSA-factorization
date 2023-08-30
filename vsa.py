@@ -9,7 +9,7 @@ from typing import List
 import random
 
 # %%
-class VSA(torch.nn.Module):
+class VSA:
     # Dictionary of all vectors composed from factors
     dict = {}
 
@@ -20,12 +20,13 @@ class VSA(torch.nn.Module):
             model:VSAOptions,
             num_factors: int,
             num_codevectors: int or List[int], # number of vectors per factor, or list of number of codevectors for each factor
+            device = "cpu"
         ):
         super(VSA, self).__init__()
 
         self.root = root
         self.model = model
-
+        self.device = device
         # # MAP default is float, we want to use int
         # if model == 'MAP':
         #     self.dtype = torch.int8
@@ -45,13 +46,14 @@ class VSA(torch.nn.Module):
 
     def gen_codebooks(self) -> List:
         l = []
-        for i in range(self.num_factors):
-            # All factors have the same number of vectors
-            if (type(self.num_codevectors == int)):
-                l.append(hd.random(self.num_codevectors, self.dim, vsa=self.model, dtype=self.dtype))
-            # Every factor has a different number of vectors
-            else:
-                l.append(hd.random(self.num_codevectors[i], self.dim, vsa=self.model, dtype=self.dtype))
+        # All factors have the same number of vectors
+        if (type(self.num_codevectors == int)):
+            for i in range(self.num_factors):
+                l.append(hd.random(self.num_codevectors, self.dim, vsa=self.model, dtype=self.dtype, device=self.device))
+        # Every factor has a different number of vectors
+        else:
+            for i in range(self.num_factors):
+                l.append(hd.random(self.num_codevectors[i], self.dim, vsa=self.model, dtype=self.dtype, device=self.device))
             
         os.makedirs(self.root, exist_ok=True)
         torch.save(l, os.path.join(self.root, f"codebooks.pt"))
@@ -73,19 +75,19 @@ class VSA(torch.nn.Module):
         Sample `num_samples` random vectors from the dictionary, or multiple vectors superposed
         '''
         labels = [None] * num_samples
-        vectors = torch.empty((num_samples, self.dim), dtype=self.dtype)
+        vectors = torch.empty((num_samples, self.dim), dtype=self.dtype, device=self.device)
         for i in range(num_samples):
             labels[i]= [tuple([random.randint(0, len(self.codebooks[i])-1) for i in range(self.num_factors)]) for j in range(num_vectors_supoerposed)]
             vectors[i] = self.apply_noise(self.__getitem__(labels[i]), noise)
         return labels, vectors
 
     def apply_noise(self, vector, noise):
-        orig = vector.clone()
+        # orig = vector.clone()
         indices = [random.random() < noise for i in range(self.dim)]
         vector[indices] = self.flip(vector[indices])
         
         # print("Verify noise:" + str(hd.dot_similarity(orig, vector)))
-        return vector
+        return vector.to(self.device)
     
     def flip(self, vector):
         if (self.model == 'MAP'):
@@ -98,7 +100,7 @@ class VSA(torch.nn.Module):
         input: `(n, d)` :tensor or [(d): tensor] * n :list
         n must match the number of factors
         '''
-        assert(len(input) == self.num_factors)
+        # assert(len(input) == self.num_factors)
         indices = [None] * self.num_factors
         if self.model == 'MAP':
             for i in range(self.num_factors):
@@ -109,6 +111,8 @@ class VSA(torch.nn.Module):
 
         return tuple(indices)
 
+    def ensure_vsa_tensor(self, data):
+        return hd.ensure_vsa_tensor(data, vsa=self.model, dtype=self.dtype, device=self.device)
 
     def __getitem__(self, key: list):
         '''
