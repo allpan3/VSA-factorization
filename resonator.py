@@ -10,12 +10,13 @@ class Resonator(nn.Module):
 
     init_estimates: hd.VSATensor
 
-    def __init__(self, vsa:VSA, norm=False, activation='NONE', iterations=100, device="cpu"):
+    def __init__(self, vsa:VSA, type="CONCURRENT", norm=False, activation='NONE', iterations=100, device="cpu"):
         super(Resonator, self).__init__()
         self.to(device)
 
         self.vsa = vsa
         self.device = device
+        self.resonator_type = type
         self.norm = norm
         self.init_estimates = self.gen_init_estimates(vsa.codebooks, norm)
         self.iterations = iterations
@@ -58,7 +59,7 @@ class Resonator(nn.Module):
                         input: hd.VSATensor,
                         estimates: hd.VSATensor,
                         codebooks: hd.VSATensor or List[hd.VSATensor],
-                        activation: Literal['NONE', 'ABS', 'ZERO'] = 'NONE'):
+                        activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
         n = estimates.size(-2)
 
         # Get binding inverse of the estimates
@@ -85,20 +86,25 @@ class Resonator(nn.Module):
             similarity = [None] * n
             output = [None] * n
             for i in range(n):
-                similarity[i] = hd.dot_similarity(new_estimates[i], codebooks[i])
+                similarity[i] = self.vsa.similarity(new_estimates[i], codebooks[i])
                 if (activation == 'ABS'):
                     similarity[i] = torch.abs(similarity[i])
+                elif (activation == 'NONNEG'):
+                    similarity[i][similarity[i] < 0] = 0
+
+                # Dot Product with the respective weights and sum
                 output[i] = hd.dot_similarity(similarity[i], codebooks[i].transpose(-2,-1))
 
             output = torch.stack(output)
         else:
-            similarity = hd.dot_similarity(new_estimates.unsqueeze(-2), codebooks)
-
+            similarity = self.vsa.similarity(new_estimates.unsqueeze(-2), codebooks)
             if (activation == 'ABS'):
                 similarity = torch.abs(similarity)
+            elif (activation == 'NONNEG'):
+                similarity[similarity < 0] = 0
 
+            # Dot Product with the respective weights and sum
             output = hd.dot_similarity(similarity, codebooks.transpose(-2, -1)).squeeze(-2)
-
 
         # This should be normalizing back to 1 and -1, but sign can potentially keep 0 at 0. It's very unlikely to see a 0 and sign() is fast 
         output = output.sign()

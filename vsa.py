@@ -123,6 +123,19 @@ class VSA:
 
         return tuple(indices)
 
+    def similarity(self, input: hd.VSATensor, others: hd.VSATensor) -> hd.VSATensor:
+        """Inner product with other hypervectors.
+        Shapes:
+            - input: :math:`(*, d)`
+            - others: :math:`(n, d)` or :math:`(d)`
+            - output: :math:`(*, n)` or :math:`(*)`, depends on shape of others
+        """
+        if isinstance(input, hd.MAPTensor):
+            return input.dot_similarity(others)
+        elif isinstance(input, hd.BSCTensor):
+            return hd.hamming_similarity(input, others)
+
+
     def ensure_vsa_tensor(self, data):
         return hd.ensure_vsa_tensor(data, vsa=self.model, dtype=self.dtype, device=self.device)
 

@@ -12,10 +12,10 @@ from resonator import Resonator
 import csv
 
 # %%
-RUN_MODE = "single"
+# RUN_MODE = "single"
 # RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
-# RUN_MODE = "norm-act"
+RUN_MODE = "norm-act"
 
 VERBOSE = 1
 NUM_SAMPLES = 400 # test data
@@ -36,6 +36,7 @@ def run_factorization(
         v = CODEVECTORS,
         n = NOISE_LEVEL,
         it = ITERATIONS,
+        t = RESONATOR_TYPE,
         norm = NORMALIZE,
         act = ACTIVATION,
         device = "cpu",
@@ -62,7 +63,7 @@ def run_factorization(
         torch.save((labels, samples), sample_file)
 
     samples = samples.to(device)
-    resonator_network = Resonator(vsa, norm=norm, activation=act, iterations=it, device=device)
+    resonator_network = Resonator(vsa, type=t, norm=norm, activation=act, iterations=it, device=device)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
