@@ -217,6 +217,8 @@ if __name__ == '__main__':
     print("Using {} device".format(device))
     torch.set_default_device(device)
 
+    os.makedirs("tests", exist_ok=True)
+
     start = time.time()
     if RUN_MODE == "single":
         print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
@@ -226,7 +228,7 @@ if __name__ == '__main__':
     elif RUN_MODE == "noise-iter":
         test_noise_iter(device=device, verbose=VERBOSE)
     elif RUN_MODE == "norm-act":
-        test_norm_act(device=device, verbose=VERBOSE)
+        test_norm_act_res(device=device, verbose=VERBOSE)
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")
