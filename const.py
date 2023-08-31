@@ -1,12 +1,12 @@
 VSA_MODEL = 'MAP'
 
 # Default values
-DIM = 5000
-FACTORS = 6
+DIM = 10000
+FACTORS = 4
 CODEVECTORS = 10
 # CODEVECTORS = [3, 3, 5, 7]
 NOISE_LEVEL = 0.0    # compositional vector noise
-ITERATIONS = 100  # max number of iterations for factorization
+ITERATIONS = 1000  # max number of iterations for factorization
 NORMALIZE = False    # normalize the initial estimate and the input vector
 ACTIVATION = 'NONE' # 'NONE', 'ABS'
 

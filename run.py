@@ -12,8 +12,8 @@ from resonator import Resonator
 import csv
 
 # %%
-RUN_MODE = "d-f-v" # "single", "d-f-v", "n-i"
-VERBOSE = 0
+RUN_MODE = "n-i" # "single", "d-f-v", "n-i"
+VERBOSE = 1
 NUM_SAMPLES = 400 # test data
 
 
@@ -65,7 +65,7 @@ def run_factorization(
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
-    for j in tqdm(range(len(labels)), desc=f"Progress", leave=True if verbose >= 2 else False):
+    for j in tqdm(range(len(labels)), desc=f"Progress", leave=True if verbose >= 1 else False):
         input = samples[j]
         label = labels[j]
 
@@ -138,11 +138,11 @@ def test_noise_iter(device="cpu", verbose=0):
                 if verbose >= 1:
                     print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
                 continue
-            if verbose >= 1:
-                print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
+
+            print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
             accuracy, unconverged, entry = run_factorization(n=n, it=it, device=device, verbose=verbose)
-            # If always converged, more iterations don't matter
-            if (unconverged[0] + unconverged[1]) == 0:
+            # If no incorrect answer is unconverted, more iterations don't matter
+            if (unconverged[1]) == 0:
                 skip_rest_i = True
             # If accuracy is less than 10% for current noise level and more iterations don't have, skip
             if accuracy <= 0.1 and skip_rest_i:
@@ -161,8 +161,6 @@ def test_noise_iter(device="cpu", verbose=0):
 # %%
 
 if __name__ == '__main__':
-    table = {}
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
     print("Using {} device".format(device))
