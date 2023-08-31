@@ -41,25 +41,54 @@ class Resonator(nn.Module):
 
 
     def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list, iterations, norm, activation):
-        old_estimates = estimates
+        old_estimates = estimates.clone()
         if norm:
             input = self.normalize(input)
         for k in range(iterations):
-            estimates = self.resonator_stage(input, estimates, codebooks, activation=activation)
+            if (self.resonator_type == "SEQUENTIAL"):
+                estimates = self.resonator_stage_seq(input, estimates, codebooks, activation)
+            elif (self.resonator_type == "CONCURRENT"):
+                estimates = self.resonator_stage_concur(input, estimates, codebooks, activation)
             if all((estimates == old_estimates).flatten().tolist()):
                 break
-            old_estimates = estimates
+            old_estimates = estimates.clone()
 
         # outcome: the indices of the codevectors in the codebooks
         outcome = self.vsa.cleanup(estimates)
 
         return outcome, k 
 
-    def resonator_stage(self,
-                        input: hd.VSATensor,
-                        estimates: hd.VSATensor,
-                        codebooks: hd.VSATensor or List[hd.VSATensor],
-                        activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
+
+    def resonator_stage_seq(self,
+                            input: hd.VSATensor,
+                            estimates: hd.VSATensor,
+                            codebooks: hd.VSATensor or List[hd.VSATensor],
+                            activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
+        n = estimates.size(-2)
+        
+        for i in range(n):
+            # Since we only target MAP and BSC, inverse of a vector itself
+            # Remove the currently processing factor itself
+            others = hd.multibind(estimates.roll(-i, -2)[1:])
+            new_estimate = hd.bind(input, others)
+
+            similarity = self.vsa.similarity(new_estimate, codebooks[i])
+            if (activation == 'ABS'):
+                similarity = torch.abs(similarity)
+            elif (activation == 'NONNEG'):
+                similarity[similarity < 0] = 0
+            
+            # Dot Product with the respective weights and sum
+            # Update the estimate in place
+            estimates[i] = hd.dot_similarity(similarity, codebooks[i].transpose(-2, -1)).sign()
+
+        return estimates
+
+    def resonator_stage_concur(self,
+                               input: hd.VSATensor,
+                               estimates: hd.VSATensor,
+                               codebooks: hd.VSATensor or List[hd.VSATensor],
+                               activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
         n = estimates.size(-2)
 
         # Get binding inverse of the estimates

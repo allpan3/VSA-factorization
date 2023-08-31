@@ -1,4 +1,7 @@
 
+default:
+	@echo "Please specify a target to make."
+
 clean-checkpoints:
 	rm -rf tests/*/*.checkpoint
 
@@ -9,7 +12,7 @@ clean-samples:
 	rm -rf tests/*/samples-*.pt
 
 clean:
-	find tests/* -d -type d -exec rm -rf '{}' \;
+	find tests/* -type d -exec rm -rf '{}' \;
 
 clean-all:
 	rm -rf tests

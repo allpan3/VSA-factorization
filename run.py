@@ -36,7 +36,7 @@ def run_factorization(
         v = CODEVECTORS,
         n = NOISE_LEVEL,
         it = ITERATIONS,
-        t = RESONATOR_TYPE,
+        r = RESONATOR_TYPE,
         norm = NORMALIZE,
         act = ACTIVATION,
         device = "cpu",
@@ -45,10 +45,10 @@ def run_factorization(
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
 
     # Checkpoint
-    cp = os.path.join(test_dir, f"{m}-{d}-{f}-{v}-{n}-{it}-{norm}-{act}-{NUM_SAMPLES}.checkpoint")
+    cp = os.path.join(test_dir, f"{m}-{d}-{f}-{v}-{n}-{r}-{it}-{norm}-{act}-{NUM_SAMPLES}.checkpoint")
     if os.path.exists(cp):
         if verbose >= 1:
-            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, it, norm, act, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
+            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, r, it, norm, act, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
         return
 
     vsa = VSA(
@@ -70,7 +70,7 @@ def run_factorization(
         torch.save((labels, samples), sample_file)
 
     samples = samples.to(device)
-    resonator_network = Resonator(vsa, type=t, norm=norm, activation=act, iterations=it, device=device)
+    resonator_network = Resonator(vsa, type=r, norm=norm, activation=act, iterations=it, device=device)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -102,9 +102,9 @@ def run_factorization(
 
 # Test various dimensions, factors, and codevectors
 def test_dim_fac_vec(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n-{RESONATOR_TYPE[0:2].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -138,14 +138,14 @@ def test_dim_fac_vec(device="cpu", verbose=0):
                         if v == CODEVECTOR_RANGE[0]:
                             skip_rest_f = True
                     
-                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:val[0],FIELDS[10]:val[1][0],FIELDS[11]:val[1][1],FIELDS[12]:NUM_SAMPLES})
 
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 def test_noise_iter(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{RESONATOR_TYPE[0:2].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -178,12 +178,12 @@ def test_noise_iter(device="cpu", verbose=0):
                 if accuracy <= 0.1 and skip_rest_i:
                     skip_rest_n = True
 
-                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:val[0],FIELDS[10]:val[1][0],FIELDS[11]:val[1][1],FIELDS[12]:NUM_SAMPLES})
 
     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 
-def test_norm_act(device="cpu", verbose=0):
+def test_norm_act_res(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{ITERATIONS}i-{NOISE_LEVEL}n.csv'
@@ -194,16 +194,17 @@ def test_norm_act(device="cpu", verbose=0):
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
-        skip_rest_n = False
-        for n in NORMALIZE_RANGE:
-            for a in ACTIVATION_RANGE:
-                print(Fore.BLUE + f"Running test with normalize = {n}, activation = {a}" + Fore.RESET)
-                ret = run_factorization(norm=n, act=a, device=device, verbose=verbose)
-                if ret is None:
-                    continue
-                _, _, key, val = ret
+        for r in RESONATOR_TYPE_RANGE:
+            skip_rest_n = False
+            for n in NORMALIZE_RANGE:
+                for a in ACTIVATION_RANGE:
+                    print(Fore.BLUE + f"Running test with resonator = {r}, normalize = {n}, activation = {a}" + Fore.RESET)
+                    ret = run_factorization(res=r, norm=n, act=a, device=device, verbose=verbose)
+                    if ret is None:
+                        continue
+                    _, _, key, val = ret
 
-                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:val[0],FIELDS[10]:val[1][0],FIELDS[11]:val[1][1],FIELDS[12]:NUM_SAMPLES})
 
     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
@@ -218,7 +219,7 @@ if __name__ == '__main__':
 
     start = time.time()
     if RUN_MODE == "single":
-        print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
+        print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
         run_factorization(device=device, verbose=VERBOSE)
     elif RUN_MODE == "dim-fac-vec":
         test_dim_fac_vec(device=device, verbose=VERBOSE)
