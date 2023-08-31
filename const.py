@@ -1,3 +1,4 @@
+# %%
 VSA_MODEL = 'MAP'
 
 # Default values
@@ -23,3 +24,5 @@ ITERATION_RANGE = [100, 1000, 5000]
 
 
 FIELDS = ['Model', 'Dimensions', 'Factors', 'Codevectors', 'Noise', 'Iterations', 'Normalize', 'Activation', 'Accuracy', 'Unconverged Correct', 'Unconverged Incorrect']
+
+# %%

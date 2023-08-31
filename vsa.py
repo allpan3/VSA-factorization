@@ -7,6 +7,7 @@ from torchvision.datasets import utils
 import os.path
 from typing import List
 import random
+import pickle
 
 # %%
 class VSA:
@@ -36,13 +37,16 @@ class VSA:
         self.num_factors = num_factors
         self.num_codevectors = num_codevectors
 
-        if self._check_exists():
+        if self._check_exists("codebooks.pt"):
             self.codebooks = torch.load(os.path.join(self.root, "codebooks.pt"))
         else:
             self.codebooks = self.gen_codebooks()
 
-        self.gen_dict()
-    
+        if self._check_exists("dict.pkl"):
+            self.dict = pickle.load(open(os.path.join(self.root, "dict.pkl"), "rb"))
+        else:
+            self.dict = self.gen_dict()
+
 
     def gen_codebooks(self) -> List:
         l = []
@@ -67,8 +71,13 @@ class VSA:
         key is a tuple of indices of each factor
         value is the tensor of the compositional vector
         '''
+        d = {}
         for key in itertools.product(*[range(len(self.codebooks[i])) for i in range(self.num_factors)]):
-            self.dict[key] = hd.multibind(torch.stack([self.codebooks[j][key[j]] for j in range(self.num_factors)]))
+            d[key] = hd.multibind(torch.stack([self.codebooks[j][key[j]] for j in range(self.num_factors)]))
+        
+        pickle.dump(d, open(os.path.join(self.root, "dict.pkl"), "wb"))
+        return d
+        
     
     def sample(self, num_samples, num_vectors_supoerposed = 1, noise=0.0):
         '''
@@ -120,17 +129,16 @@ class VSA:
         fx is the index of the factor in the codebook, which is also its label.
         '''
         if (len(key) == 1):
-            return self.dict[key[0]]
+            return self.dict[key[0]].to(self.device)
         else:
-            obj = self.dict[key[0]]
+            obj = self.dict[key[0]].to(self.device)
             i = 1
             while i < len(key):
-                obj = hd.bundle(obj, self.dict[key[i]])
+                obj = hd.bundle(obj, self.dict[key[i]].to(self.device))
                 i += 1
             return obj
     
  
-    def _check_exists(self) -> bool:
-        return utils.check_integrity(os.path.join(self.root, "codebooks.pt"))
-
+    def _check_exists(self, file) -> bool:
+        return utils.check_integrity(os.path.join(self.root, file))
 # %%
