@@ -98,13 +98,13 @@ def run_factorization(
     with open(cp, "w") as fp:
         pass
 
-    return accuracy, unconverged, (m, d, f, v, n, it, norm, act), (accuracy, unconverged)
+    return accuracy, unconverged, (m, d, f, v, n, r, it, norm, act), (accuracy, unconverged)
 
 # Test various dimensions, factors, and codevectors
 def test_dim_fac_vec(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n-{RESONATOR_TYPE[0:3].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{NOISE_LEVEL}n-{RESONATOR_TYPE[0:3].lower()}-{ITERATIONS}i{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -186,7 +186,7 @@ def test_noise_iter(device="cpu", verbose=0):
 def test_norm_act_res(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{ITERATIONS}i-{NOISE_LEVEL}n.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{NOISE_LEVEL}n-{ITERATIONS}i.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
