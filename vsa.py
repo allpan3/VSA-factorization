@@ -7,12 +7,9 @@ from torchvision.datasets import utils
 import os.path
 from typing import List, Tuple
 import random
-import pickle
 
 # %%
 class VSA:
-    # Dictionary of all vectors composed from factors
-    dict = {}
     # codebooks for each factor
     codebooks: List[hd.VSATensor] or hd.VSATensor
 
@@ -44,11 +41,6 @@ class VSA:
         else:
             self.codebooks = self.gen_codebooks()
 
-        if self._check_exists("dict.pkl"):
-            self.dict = pickle.load(open(os.path.join(self.root, "dict.pkl"), "rb"))
-        else:
-            self.dict = self.gen_dict()
-
 
     def gen_codebooks(self) -> List[hd.VSATensor] or hd.VSATensor:
         l = []
@@ -66,21 +58,6 @@ class VSA:
         torch.save(l, os.path.join(self.root, f"codebooks.pt"))
 
         return l
-
-
-    def gen_dict(self):
-        '''
-        Generate dictionary of all possible combinations of factors
-        key is a tuple of indices of each factor
-        value is the tensor of the compositional vector
-        '''
-        d = {}
-        for key in itertools.product(*[range(len(self.codebooks[i])) for i in range(self.num_factors)]):
-            d[key] = hd.multibind(torch.stack([self.codebooks[j][key[j]] for j in range(self.num_factors)]))
-        
-        pickle.dump(d, open(os.path.join(self.root, "dict.pkl"), "wb"))
-        return d
-        
     
     def sample(self, num_samples, num_vectors_supoerposed = 1, noise=0.0):
         '''
@@ -139,20 +116,26 @@ class VSA:
     def ensure_vsa_tensor(self, data):
         return hd.ensure_vsa_tensor(data, vsa=self.model, dtype=self.dtype, device=self.device)
 
+    def get_vector(self, key:tuple):
+        '''
+        `key` is a tuple of indices of each factor
+        Instead of pre-generate the dictionary, we combine factors to get the vector on the fly
+        This saves meomry, and also the dictionary lookup is only used during sampling and comparison
+        '''
+        assert(len(key) == self.num_factors)
+        factors = [self.codebooks[i][key[i]] for i in range(self.num_factors)]
+        return hd.multibind(torch.stack(factors)).to(self.device)
+
     def __getitem__(self, key: list):
         '''
         `key` is a list of tuples in [(f0, f1, f2, ...), ...] format.
         fx is the index of the factor in the codebook, which is also its label.
         '''
         if (len(key) == 1):
-            return self.dict[key[0]].to(self.device)
+            return self.get_vector(key[0])
         else:
-            obj = self.dict[key[0]].to(self.device)
-            i = 1
-            while i < len(key):
-                obj = hd.bundle(obj, self.dict[key[i]].to(self.device))
-                i += 1
-            return obj
+            # TODO to be tested
+            return hd.multiset(torch.stack([self.get_vector(key[i]) for i in range(len(key))]))
     
  
     def _check_exists(self, file) -> bool:

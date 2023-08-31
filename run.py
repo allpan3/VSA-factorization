@@ -12,8 +12,8 @@ from resonator import Resonator
 import csv
 
 # %%
-# RUN_MODE = "single"
-RUN_MODE = "dim-fac-vec" 
+RUN_MODE = "single"
+# RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act"
 
