@@ -12,8 +12,8 @@ from resonator import Resonator
 import csv
 
 # %%
-RUN_MODE = "single"
-# RUN_MODE = "dim-fac-vec" 
+# RUN_MODE = "single"
+RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act"
 
@@ -104,7 +104,7 @@ def run_factorization(
 def test_dim_fac_vec(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n-{RESONATOR_TYPE[0:2].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n-{RESONATOR_TYPE[0:3].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -145,7 +145,7 @@ def test_dim_fac_vec(device="cpu", verbose=0):
 def test_noise_iter(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{RESONATOR_TYPE[0:2].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{RESONATOR_TYPE[0:3].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
