@@ -2,11 +2,11 @@
 VSA_MODEL = 'MAP'
 
 # Default values
-DIM = 10000
-FACTORS = 4
+DIM = 1000
+FACTORS = 3
 CODEVECTORS = 10
-# CODEVECTORS = [3, 3, 5, 7]
-NOISE_LEVEL = 0.0    # compositional vector noise
+# CODEVECTORS : tuple = (4, 6, 8) 
+NOISE_LEVEL = 0.2    # compositional vector noise
 ITERATIONS = 1000  # max number of iterations for factorization
 NORMALIZE = False    # normalize the initial estimate and the input vector
 ACTIVATION = 'NONE' # 'NONE', 'ABS'
@@ -23,6 +23,6 @@ NOISE_RANGE = [0.0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
 ITERATION_RANGE = [100, 1000, 5000]
 
 
-FIELDS = ['Model', 'Dimensions', 'Factors', 'Codevectors', 'Noise', 'Iterations', 'Normalize', 'Activation', 'Accuracy', 'Unconverged Correct', 'Unconverged Incorrect']
+FIELDS = ['Model', 'Dimensions', 'Factors', 'Codevectors', 'Noise', 'Iterations', 'Normalize', 'Activation', 'Accuracy', 'Unconverged Correct', 'Unconverged Incorrect', "Samples"]
 
 # %%

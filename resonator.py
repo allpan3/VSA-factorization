@@ -1,29 +1,45 @@
 # %%
 import torch.nn as nn
 import torchhd as hd
-from typing import Literal
+from typing import Literal, List
 import torch
 from vsa import VSA
 
 # %%
 class Resonator(nn.Module):
-    def __init__(self, vsa:VSA, codebooks, norm=False, activation='NONE', iterations=100):
-        super(Resonator, self).__init__()
-        self.vsa = vsa
-        self.codebooks = codebooks
-        init_estimates = hd.multiset(codebooks)
 
-        if norm:
-            init_estimates = self.normalize(init_estimates)
+    init_estimates: hd.VSATensor
+
+    def __init__(self, vsa:VSA, norm=False, activation='NONE', iterations=100, device="cpu"):
+        super(Resonator, self).__init__()
+        self.to(device)
+
+        self.vsa = vsa
+        self.device = device
         self.norm = norm
-        self.init_estimates = init_estimates
+        self.init_estimates = self.gen_init_estimates(vsa.codebooks, norm)
         self.iterations = iterations
         self.activation = activation
 
     def forward(self, input):
-        return self.resonator_network(input, self.init_estimates, self.codebooks, self.iterations, self.norm, self.activation)
+        return self.resonator_network(input, self.init_estimates, self.vsa.codebooks, self.iterations, self.norm, self.activation)
 
-    def resonator_network(self, input, estimates, codebooks, iterations, norm, activation):
+    def gen_init_estimates(self, codebooks: hd.VSATensor or List[hd.VSATensor], norm: bool) -> hd.VSATensor:
+        if (type(codebooks) == list):
+            guesses = [None] * len(codebooks)
+            for i in range(len(codebooks)):
+                guesses[i] = hd.multiset(codebooks[i])
+            init_estimates = torch.stack(guesses)
+        else:
+            init_estimates = hd.multiset(codebooks)
+
+        if norm:
+            init_estimates = self.normalize(init_estimates)
+        
+        return init_estimates
+
+
+    def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list, iterations, norm, activation):
         old_estimates = estimates
         if norm:
             input = self.normalize(input)
@@ -38,47 +54,56 @@ class Resonator(nn.Module):
 
         return outcome, k 
 
-
     def resonator_stage(self,
                         input: hd.VSATensor,
-                        estimates: hd.VSATensor or list,
-                        codebooks: hd.VSATensor or list,
+                        estimates: hd.VSATensor,
+                        codebooks: hd.VSATensor or List[hd.VSATensor],
                         activation: Literal['NONE', 'ABS', 'ZERO'] = 'NONE'):
-        if type(estimates) is list:
-            pass
+        n = estimates.size(-2)
+
+        # Get binding inverse of the estimates
+        inv_estimates = estimates.inverse()
+
+        # Roll over the number of estimates to align each row with the other symbols
+        # Example: for factorizing x, y, z the stacked matrix has the following estimates:
+        # [[z, y],
+        #  [x, z],
+        #  [y, x]]
+        rolled = []
+        for i in range(1, n):
+            rolled.append(inv_estimates.roll(i, -2))
+
+        inv_estimates = torch.stack(rolled, dim=-2)
+
+        # First bind all the other estimates together: z * y, x * z, y * z
+        inv_others = hd.multibind(inv_estimates)
+
+        # Then unbind all other estimates from the input: s * (x * y), s * (x * z), s * (y * z)
+        new_estimates = hd.bind(input.unsqueeze(-2), inv_others)
+
+        if (type(codebooks) == list):
+            similarity = [None] * n
+            output = [None] * n
+            for i in range(n):
+                similarity[i] = hd.dot_similarity(new_estimates[i], codebooks[i])
+                if (activation == 'ABS'):
+                    similarity[i] = torch.abs(similarity[i])
+                output[i] = hd.dot_similarity(similarity[i], codebooks[i].transpose(-2,-1))
+
+            output = torch.stack(output)
         else:
-            n = estimates.size(-2)
-
-            # Get binding inverse of the estimates
-            inv_estimates = estimates.inverse()
-
-            # Roll over the number of estimates to align each row with the other symbols
-            # Example: for factorizing x, y, z the stacked matrix has the following estimates:
-            # [[z, y],
-            #  [x, z],
-            #  [y, x]]
-            rolled = []
-            for i in range(1, n):
-                rolled.append(inv_estimates.roll(i, -2))
-
-            inv_estimates = torch.stack(rolled, dim=-2)
-
-            # First bind all the other estimates together: z * y, x * z, y * z
-            inv_others = hd.multibind(inv_estimates)
-
-            # Then unbind all other estimates from the input: s * (x * y), s * (x * z), s * (y * z)
-            new_estimates = hd.bind(input.unsqueeze(-2), inv_others)
-
             similarity = hd.dot_similarity(new_estimates.unsqueeze(-2), codebooks)
 
             if (activation == 'ABS'):
                 similarity = torch.abs(similarity)
 
             output = hd.dot_similarity(similarity, codebooks.transpose(-2, -1)).squeeze(-2)
-            # This should be normalizing back to 1 and -1, but sign can potentially keep 0 at 0. It's very unlikely to see a 0 and sign() is fast 
-            output = output.sign()
-            
-            return output
+
+
+        # This should be normalizing back to 1 and -1, but sign can potentially keep 0 at 0. It's very unlikely to see a 0 and sign() is fast 
+        output = output.sign()
+        
+        return output
 
     
     def normalize(self, input):

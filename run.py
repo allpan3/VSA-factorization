@@ -12,10 +12,13 @@ from resonator import Resonator
 import csv
 
 # %%
-RUN_MODE = "n-i" # "single", "d-f-v", "n-i"
+RUN_MODE = "single"
+# RUN_MODE = "dim-fac-vec" 
+# RUN_MODE = "noise-iter"
+# RUN_MODE = "norm-act"
+
 VERBOSE = 1
 NUM_SAMPLES = 400 # test data
-
 
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
@@ -23,7 +26,7 @@ def v_name(num_codevectors):
     else:
         s = ""
         for i in range(len(num_codevectors)):
-            s = f"{num_codevectors[i]},"
+            s += f"{num_codevectors[i]},"
         return s[:-1] + "v"
 
 def run_factorization(
@@ -59,9 +62,7 @@ def run_factorization(
         torch.save((labels, samples), sample_file)
 
     samples = samples.to(device)
-    codebooks = torch.stack(vsa.codebooks).to(device)
-
-    resonator_network = Resonator(vsa, codebooks, norm=norm, activation=act, iterations=it).to(device)
+    resonator_network = Resonator(vsa, norm=norm, activation=act, iterations=it, device=device)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -122,11 +123,11 @@ def test_dim_fac_vec(device="cpu", verbose=0):
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
         for key in table:
-            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1]})
+            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 def test_noise_iter(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     table = {}
     skip_rest_n = False
@@ -155,8 +156,29 @@ def test_noise_iter(device="cpu", verbose=0):
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
         for key in table:
-            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1]})
+            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+
+
+def test_norm_act(device="cpu", verbose=0):
+    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+
+    table = {}
+    skip_rest_n = False
+    for n in NORMALIZE_RANGE:
+        for a in ACTIVATION_RANGE:
+            print(Fore.BLUE + f"Running test with normalize = {n}, activation = {a}" + Fore.RESET)
+            _, _, entry = run_factorization(norm=n, act=a, device=device, verbose=verbose)
+            table.update(entry)
+
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{ITERATIONS}i-{NOISE_LEVEL}n.csv'
+    with open(csv_file, mode='w') as c:
+        writer = csv.DictWriter(c, fieldnames=FIELDS)
+        writer.writeheader()
+        for key in table:
+            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
+        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+
 
 # %%
 
@@ -168,12 +190,14 @@ if __name__ == '__main__':
 
     start = time.time()
     if RUN_MODE == "single":
+        print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
         run_factorization(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "d-f-v":
+    elif RUN_MODE == "dim-fac-vec":
         test_dim_fac_vec(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "n-i":
+    elif RUN_MODE == "noise-iter":
         test_noise_iter(device=device, verbose=VERBOSE)
-    # elif RUN_MODE == ""
+    elif RUN_MODE == "norm-act":
+        test_norm_act(device=device, verbose=VERBOSE)
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")

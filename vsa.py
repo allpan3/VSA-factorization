@@ -5,7 +5,7 @@ from torchhd.types import VSAOptions
 import itertools
 from torchvision.datasets import utils
 import os.path
-from typing import List
+from typing import List, Tuple
 import random
 import pickle
 
@@ -13,6 +13,8 @@ import pickle
 class VSA:
     # Dictionary of all vectors composed from factors
     dict = {}
+    # codebooks for each factor
+    codebooks: List[hd.VSATensor] or hd.VSATensor
 
     def __init__(
             self,
@@ -20,7 +22,7 @@ class VSA:
             dim: int,
             model:VSAOptions,
             num_factors: int,
-            num_codevectors: int or List[int], # number of vectors per factor, or list of number of codevectors for each factor
+            num_codevectors: int or Tuple[int], # number of vectors per factor, or tuple of number of codevectors for each factor
             device = "cpu"
         ):
         super(VSA, self).__init__()
@@ -48,12 +50,13 @@ class VSA:
             self.dict = self.gen_dict()
 
 
-    def gen_codebooks(self) -> List:
+    def gen_codebooks(self) -> List[hd.VSATensor] or hd.VSATensor:
         l = []
         # All factors have the same number of vectors
-        if (type(self.num_codevectors == int)):
+        if (type(self.num_codevectors) == int):
             for i in range(self.num_factors):
                 l.append(hd.random(self.num_codevectors, self.dim, vsa=self.model, dtype=self.dtype, device=self.device))
+            l = torch.stack(l).to(self.device)
         # Every factor has a different number of vectors
         else:
             for i in range(self.num_factors):
@@ -84,7 +87,7 @@ class VSA:
         Sample `num_samples` random vectors from the dictionary, or multiple vectors superposed
         '''
         labels = [None] * num_samples
-        vectors = torch.empty((num_samples, self.dim), dtype=self.dtype, device=self.device)
+        vectors = hd.empty(num_samples, self.dim, vsa=self.model, dtype=self.dtype, device=self.device)
         for i in range(num_samples):
             labels[i]= [tuple([random.randint(0, len(self.codebooks[i])-1) for i in range(self.num_factors)]) for j in range(num_vectors_supoerposed)]
             vectors[i] = self.apply_noise(self.__getitem__(labels[i]), noise)
