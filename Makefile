@@ -8,11 +8,11 @@ clean-checkpoints:
 clean-codebooks:
 	rm -rf tests/*/codebooks.pt
 
+clean-tables:
+	rm -rf tests/table-*.csv
+
 clean-samples:
 	rm -rf tests/*/samples-*.pt
-
-clean:
-	find tests/* -type d -exec rm -rf '{}' \;
 
 clean-all:
 	rm -rf tests
