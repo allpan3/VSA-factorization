@@ -13,9 +13,9 @@ import csv
 
 # %%
 # RUN_MODE = "single"
-# RUN_MODE = "dim-fac-vec" 
+RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
-RUN_MODE = "norm-act"
+# RUN_MODE = "norm-act"
 
 VERBOSE = 1
 NUM_SAMPLES = 400 # test data
@@ -43,6 +43,13 @@ def run_factorization(
         verbose = 0):
 
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
+
+    # Checkpoint
+    cp = os.path.join(test_dir, f"{m}-{d}-{f}-{v}-{n}-{it}-{norm}-{act}-{NUM_SAMPLES}.checkpoint")
+    if os.path.exists(cp):
+        if verbose >= 1:
+            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, it, norm, act, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
+        return
 
     vsa = VSA(
         root=test_dir,
@@ -87,98 +94,118 @@ def run_factorization(
     if verbose >= 1:
         print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{len(labels)}")
 
-    return accuracy, unconverged, {(m, d, f, v, n, it, norm, act): (accuracy, unconverged)}
+    # Checkpoint
+    with open(cp, "w") as fp:
+        pass
+
+    return accuracy, unconverged, (m, d, f, v, n, it, norm, act), (accuracy, unconverged)
 
 # Test various dimensions, factors, and codevectors
 def test_dim_fac_vec(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    table = {}
-    for d in DIM_RANGE:
-        skip_rest_f = False
-        for f in FACTOR_RANGE:
-            if not skip_rest_f:
-                skip_rest_v = False 
-            for v in CODEVECTOR_RANGE:
-                if verbose >= 1:
-                    print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
-
-                if skip_rest_v:
-                    if verbose >= 1:
-                        print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
-                    continue
-
-                accuracy, _, entry = run_factorization(d=d, f=f, v=v, device=device, verbose=verbose)
-
-                # If accuracy is less than 30%, skip the rest of the tests
-                if accuracy <= 0.3:
-                    skip_rest_v = True
-                    # If the first stage fails, skip the rest of f
-                    if v == CODEVECTOR_RANGE[0]:
-                        skip_rest_f = True
-                
-                table.update(entry)
-
     csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    if os.path.exists(csv_file):
+        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
+        return
+
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
-        for key in table:
-            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
+        for d in DIM_RANGE:
+            skip_rest_f = False
+            for f in FACTOR_RANGE:
+                if not skip_rest_f:
+                    skip_rest_v = False 
+                for v in CODEVECTOR_RANGE:
+                    if skip_rest_v:
+                        if verbose >= 1:
+                            print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
+                        continue
+
+                    if verbose >= 1:
+                        print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
+
+                    ret = run_factorization(d=d, f=f, v=v, device=device, verbose=verbose)
+                    if ret is None:
+                        continue
+                    accuracy, _, key, val = ret
+
+                    # If accuracy is less than 30%, skip the rest of the tests
+                    if accuracy <= 0.3:
+                        skip_rest_v = True
+                        # If the first stage fails, skip the rest of f
+                        if v == CODEVECTOR_RANGE[0]:
+                            skip_rest_f = True
+                    
+                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 def test_noise_iter(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    table = {}
-    skip_rest_n = False
-    for n in NOISE_RANGE:
-        if not skip_rest_n:
-            skip_rest_i = False
-        for it in ITERATION_RANGE:
-            if skip_rest_i:
-                if verbose >= 1:
-                    print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
-                continue
-
-            print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
-            accuracy, unconverged, entry = run_factorization(n=n, it=it, device=device, verbose=verbose)
-            # If no incorrect answer is unconverted, more iterations don't matter
-            if (unconverged[1]) == 0:
-                skip_rest_i = True
-            # If accuracy is less than 10% for current noise level and more iterations don't have, skip
-            if accuracy <= 0.1 and skip_rest_i:
-                skip_rest_n = True
-
-            table.update(entry)
-
     csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    if os.path.exists(csv_file):
+        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
+        return
+
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
-        for key in table:
-            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
-        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+        skip_rest_n = False
+        for n in NOISE_RANGE:
+            if not skip_rest_n:
+                skip_rest_i = False
+            for it in ITERATION_RANGE:
+                if skip_rest_i:
+                    if verbose >= 1:
+                        print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
+                    continue
+                
+                if verbose >= 1:
+                    print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
+
+                ret = run_factorization(n=n, it=it, device=device, verbose=verbose)
+                if ret is None:
+                    continue
+                accuracy, unconverged, key, val = ret
+
+                # If no incorrect answer is unconverted, more iterations don't matter
+                if (unconverged[1]) == 0:
+                    skip_rest_i = True
+                # If accuracy is less than 10% for current noise level and more iterations don't have, skip
+                if accuracy <= 0.1 and skip_rest_i:
+                    skip_rest_n = True
+
+                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+
+    print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 
 def test_norm_act(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    table = {}
-    skip_rest_n = False
-    for n in NORMALIZE_RANGE:
-        for a in ACTIVATION_RANGE:
-            print(Fore.BLUE + f"Running test with normalize = {n}, activation = {a}" + Fore.RESET)
-            _, _, entry = run_factorization(norm=n, act=a, device=device, verbose=verbose)
-            table.update(entry)
-
     csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{ITERATIONS}i-{NOISE_LEVEL}n.csv'
+    if os.path.exists(csv_file):
+        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
+        return
+
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
         writer.writeheader()
-        for key in table:
-            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1], FIELDS[11]:NUM_SAMPLES})
-        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+        skip_rest_n = False
+        for n in NORMALIZE_RANGE:
+            for a in ACTIVATION_RANGE:
+                print(Fore.BLUE + f"Running test with normalize = {n}, activation = {a}" + Fore.RESET)
+                ret = run_factorization(norm=n, act=a, device=device, verbose=verbose)
+                if ret is None:
+                    continue
+                _, _, key, val = ret
+
+                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:val[0],FIELDS[9]:val[1][0],FIELDS[10]:val[1][1], FIELDS[11]:NUM_SAMPLES})
+
+    print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 
 # %%
