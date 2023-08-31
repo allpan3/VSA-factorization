@@ -9,9 +9,10 @@ import json
 from const import *
 import time
 from resonator import Resonator
+import csv
 
 # %%
-RUN_MODE = "single" # "single", "d-f-v", "n-i"
+RUN_MODE = "d-f-v" # "single", "d-f-v", "n-i"
 VERBOSE = 0
 NUM_SAMPLES = 400 # test data
 
@@ -64,7 +65,7 @@ def run_factorization(
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
-    for j in tqdm(range(len(labels))):
+    for j in tqdm(range(len(labels)), desc=f"Progress", leave=True if verbose >= 2 else False):
         input = samples[j]
         label = labels[j]
 
@@ -73,23 +74,21 @@ def run_factorization(
         if (outcome not in label):
             incorrect += 1
             unconverged[1] += 1 if convergence == it-1 else 0
-            if verbose >= 1:
-                print(Fore.RED + f"Test {j} failed:" + f"Label = {label}, Outcome = {outcome}" + Fore.RESET)
-                print(f"Convergence: {convergence}")
+            if verbose >= 2:
+                print(Fore.RED + f"Test {j} failed:" + f"Label = {label}, Outcome = {outcome}" + Fore.RESET + f"    Convergence: {convergence}")
         else:
             unconverged[0] += 1 if convergence == it-1 else 0
-            if verbose >= 2:
-                print(f"Test {j} passed:" + f"Label = {label}, Outcome = {outcome}")
-                print(f"Convergence: {convergence}")
+            if verbose >= 3:
+                print(f"Test {j} passed:" + f"Label = {label}, Outcome = {outcome}    Convergence: {convergence}")
         
     accuracy = (NUM_SAMPLES - incorrect) / NUM_SAMPLES
-    print(f"Accuracy: {accuracy}")
-    print(f"Unconverged: {unconverged}/{len(labels)}")
+    if verbose >= 1:
+        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{len(labels)}")
 
-    return accuracy, unconverged, {str((m, d, f, v, n, it, norm, act)): (accuracy, unconverged)}
+    return accuracy, unconverged, {(m, d, f, v, n, it, norm, act): (accuracy, unconverged)}
 
 # Test various dimensions, factors, and codevectors
-def test_dim_fac_vec(device="cpu"):
+def test_dim_fac_vec(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     table = {}
@@ -99,13 +98,15 @@ def test_dim_fac_vec(device="cpu"):
             if not skip_rest_f:
                 skip_rest_v = False 
             for v in CODEVECTOR_RANGE:
-                print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
+                if verbose >= 1:
+                    print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
 
                 if skip_rest_v:
-                    print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
+                    if verbose >= 1:
+                        print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
                     continue
 
-                accuracy, _, entry = run_factorization(d=d, f=f, v=v, device=device)
+                accuracy, _, entry = run_factorization(d=d, f=f, v=v, device=device, verbose=verbose)
 
                 # If accuracy is less than 30%, skip the rest of the tests
                 if accuracy <= 0.3:
@@ -116,12 +117,15 @@ def test_dim_fac_vec(device="cpu"):
                 
                 table.update(entry)
 
-    json_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n-{"norm" if NORMALIZE else ""}-{ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.json'
-    with open(json_file, 'w') as f:
-        json.dump(table, f)
-        print(Fore.GREEN + f"Saved table to {json_file}" + Fore.RESET)
+    csv_file = f'tests/table-{VSA_MODEL}-{ITERATIONS}i-{NOISE_LEVEL}n{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    with open(csv_file, mode='w') as c:
+        writer = csv.DictWriter(c, fieldnames=FIELDS)
+        writer.writeheader()
+        for key in table:
+            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1]})
+        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
-def test_noise_iter(device="cpu"):
+def test_noise_iter(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     table = {}
@@ -131,11 +135,12 @@ def test_noise_iter(device="cpu"):
             skip_rest_i = False
         for it in ITERATION_RANGE:
             if skip_rest_i:
-                print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
+                if verbose >= 1:
+                    print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
                 continue
-
-            print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
-            accuracy, unconverged, entry = run_factorization(n=n, it=it, device=device)
+            if verbose >= 1:
+                print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
+            accuracy, unconverged, entry = run_factorization(n=n, it=it, device=device, verbose=verbose)
             # If always converged, more iterations don't matter
             if (unconverged[0] + unconverged[1]) == 0:
                 skip_rest_i = True
@@ -145,10 +150,14 @@ def test_noise_iter(device="cpu"):
 
             table.update(entry)
 
-    json_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.json'
-    with open(json_file, 'w') as f:
-        json.dump(table, f)
-        print(Fore.GREEN + f"Saved table to {json_file}" + Fore.RESET)
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    with open(csv_file, mode='w') as c:
+        writer = csv.DictWriter(c, fieldnames=FIELDS)
+        writer.writeheader()
+        for key in table:
+            writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:table[key][0],FIELDS[9]:table[key][1][0],FIELDS[10]:table[key][1][1]})
+        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+
 # %%
 
 if __name__ == '__main__':
@@ -163,9 +172,9 @@ if __name__ == '__main__':
     if RUN_MODE == "single":
         run_factorization(device=device, verbose=VERBOSE)
     elif RUN_MODE == "d-f-v":
-        test_dim_fac_vec(device=device)
+        test_dim_fac_vec(device=device, verbose=VERBOSE)
     elif RUN_MODE == "n-i":
-        test_noise_iter(device=device)
+        test_noise_iter(device=device, verbose=VERBOSE)
     # elif RUN_MODE == ""
 
     end = time.time()
