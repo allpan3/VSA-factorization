@@ -5,7 +5,7 @@ default:
 clean-checkpoints:
 	rm -rf tests/*/*.checkpoint
 
-clean-codebooks:
+clean-codebooks: clean-samples
 	rm -rf tests/*/codebooks.pt
 
 clean-tables:
