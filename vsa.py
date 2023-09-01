@@ -23,7 +23,6 @@ class VSA:
             seed: None or int = None,  # random seed
             device = "cpu"
         ):
-        super(VSA, self).__init__()
 
         self.root = root
         self.model = model

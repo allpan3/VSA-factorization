@@ -21,20 +21,20 @@ class Resonator(nn.Module):
         self.iterations = iterations
         self.activation = activation
 
-    def forward(self, input, init_estimates):
+    def forward(self, inputs, init_estimates):
         if self.norm:
             init_estimates = self.normalize(init_estimates)
-        return self.resonator_network(input, init_estimates, self.vsa.codebooks)
+        return self.resonator_network(inputs, init_estimates, self.vsa.codebooks, self.iterations, self.norm, self.activation)
 
-    def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list):
+    def resonator_network(self, inputs: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list, iterations, norm, activation):
         old_estimates = estimates.clone()
-        if self.norm:
-            input = self.normalize(input)
-        for k in range(self.iterations):
+        if norm:
+            inputs = self.normalize(inputs)
+        for k in range(iterations):
             if (self.resonator_type == "SEQUENTIAL"):
-                estimates = self.resonator_stage_seq(input, estimates, codebooks, self.activation)
+                estimates = self.resonator_stage_seq(inputs, estimates, codebooks, activation)
             elif (self.resonator_type == "CONCURRENT"):
-                estimates = self.resonator_stage_concur(input, estimates, codebooks, self.activation)
+                estimates = self.resonator_stage_concur(inputs, estimates, codebooks, activation)
             if all((estimates == old_estimates).flatten().tolist()):
                 break
             old_estimates = estimates.clone()
@@ -111,7 +111,8 @@ class Resonator(nn.Module):
         if (type(codebooks) == list):
             # f elements, each is VSATensor of (b, v)
             similarity = [None] * f 
-            output = self.vsa.ensure_vsa_tensor(torch.empty((b, f, d)))
+            # Ensure no overflow
+            output = hd.ensure_vsa_tensor(torch.empty((b, f, d), dtype=torch.int64))
             for i in range(f):
                 # All batches, the i-th factor compared with the i-th codebook
                 similarity[i] = self.vsa.similarity(new_estimates[:,i], codebooks[i]) 
@@ -133,7 +134,7 @@ class Resonator(nn.Module):
             output = hd.dot_similarity(similarity, codebooks.transpose(-2, -1)).squeeze(-2)
 
         # This should be normalizing back to 1 and -1, but sign can potentially keep 0 at 0. It's very unlikely to see a 0 and sign() is fast 
-        output = output.sign()
+        output = output.sign().type(inputs.dtype)
         
         return output
 
