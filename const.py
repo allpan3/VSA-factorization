@@ -1,13 +1,10 @@
 # %%
-
-CHECKPOINT = False
-
 VSA_MODEL = 'MAP'
 
 # Default values
 DIM = 10000
-FACTORS = 5
-CODEVECTORS = 6
+FACTORS = 6
+CODEVECTORS = 10
 # CODEVECTORS : tuple = (4, 6, 8) 
 NOISE_LEVEL = 0.0    # compositional vector noise
 ITERATIONS = 100  # max number of iterations for factorization

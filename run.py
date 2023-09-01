@@ -19,8 +19,10 @@ RUN_MODE = "single"
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act"
 
-VERBOSE = 3
+VERBOSE = 1
+CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
+BATCH_SIZE = 4
 
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
@@ -70,7 +72,7 @@ def run_factorization(
 
     # Generate test samples
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, num_vectors_superposed=1, noise=n)
-    dl = DataLoader(ds, batch_size=2, shuffle=False, collate_fn=collate_fn)
+    dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     resonator_network = Resonator(vsa, type=r, norm=norm, activation=act, iterations=it, device=device)
 
