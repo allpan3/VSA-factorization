@@ -60,7 +60,7 @@ class Resonator(nn.Module):
 
 
     def resonator_stage_seq(self,
-                            input: hd.VSATensor,
+                            inputs: hd.VSATensor,
                             estimates: hd.VSATensor,
                             codebooks: hd.VSATensor or List[hd.VSATensor],
                             activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
@@ -70,7 +70,7 @@ class Resonator(nn.Module):
             # Since we only target MAP and BSC, inverse of a vector itself
             # Remove the currently processing factor itself
             others = hd.multibind(estimates.roll(-i, -2)[1:])
-            new_estimate = hd.bind(input, others)
+            new_estimate = hd.bind(inputs, others)
 
             similarity = self.vsa.similarity(new_estimate, codebooks[i])
             if (activation == 'ABS'):
@@ -85,10 +85,15 @@ class Resonator(nn.Module):
         return estimates
 
     def resonator_stage_concur(self,
-                               input: hd.VSATensor,
+                               inputs: hd.VSATensor,
                                estimates: hd.VSATensor,
                                codebooks: hd.VSATensor or List[hd.VSATensor],
                                activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
+        '''
+        ARGS:
+            inputs: `(b, d)`. b is batch size, d is dimension
+            estimates: `(b, f, d)`. f is number of factors, d is dimension (in the first call estimates is `(f, d)`)
+        '''
         n = estimates.size(-2)
 
         # Get binding inverse of the estimates
@@ -109,7 +114,7 @@ class Resonator(nn.Module):
         inv_others = hd.multibind(inv_estimates)
 
         # Then unbind all other estimates from the input: s * (x * y), s * (x * z), s * (y * z)
-        new_estimates = hd.bind(input.unsqueeze(-2), inv_others)
+        new_estimates = hd.bind(inputs.unsqueeze(-2), inv_others)
 
         if (type(codebooks) == list):
             similarity = [None] * n
@@ -123,7 +128,6 @@ class Resonator(nn.Module):
 
                 # Dot Product with the respective weights and sum
                 output[i] = hd.dot_similarity(similarity[i], codebooks[i].transpose(-2,-1))
-
             output = torch.stack(output)
         else:
             similarity = self.vsa.similarity(new_estimates.unsqueeze(-2), codebooks)

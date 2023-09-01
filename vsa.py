@@ -84,22 +84,15 @@ class VSA:
         elif (self.model == "BSC"):
             return 1 - vector
 
-    def cleanup(self, input):
+    def cleanup(self, inputs):
         '''
-        input: `(n, d)` :tensor or [(d): tensor] * n :list
-        n must match the number of factors
+        input: `(b, f, d)` :tensor. b is batch size, f is number of factors, d is dimension
+        Return: List[Tuple(int)] of length b
         '''
         # assert(len(input) == self.num_factors)
-        indices = [None] * self.num_factors
-        if self.model == 'MAP':
-            for i in range(self.num_factors):
-                winner = torch.argmax(torch.abs(hd.dot_similarity(input[i], self.codebooks[i])))
-                # winner = torch.argmax(hd.dot_similarity(input[i], self.codebooks[i]))
-                indices[i] = winner.item()
-        # elif self.model == "BSC":
-
-        return tuple(indices)
-
+        winners = torch.argmax(torch.abs(hd.dot_similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
+        return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
+      
     def similarity(self, input: hd.VSATensor, others: hd.VSATensor) -> hd.VSATensor:
         """Inner product with other hypervectors.
         Shapes:
