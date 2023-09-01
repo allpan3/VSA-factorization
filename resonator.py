@@ -24,17 +24,17 @@ class Resonator(nn.Module):
     def forward(self, input, init_estimates):
         if self.norm:
             init_estimates = self.normalize(init_estimates)
-        return self.resonator_network(input, init_estimates, self.vsa.codebooks, self.iterations, self.norm, self.activation)
+        return self.resonator_network(input, init_estimates, self.vsa.codebooks)
 
-    def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list, iterations, norm, activation):
+    def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list):
         old_estimates = estimates.clone()
-        if norm:
+        if self.norm:
             input = self.normalize(input)
-        for k in range(iterations):
+        for k in range(self.iterations):
             if (self.resonator_type == "SEQUENTIAL"):
-                estimates = self.resonator_stage_seq(input, estimates, codebooks, activation)
+                estimates = self.resonator_stage_seq(input, estimates, codebooks, self.activation)
             elif (self.resonator_type == "CONCURRENT"):
-                estimates = self.resonator_stage_concur(input, estimates, codebooks, activation)
+                estimates = self.resonator_stage_concur(input, estimates, codebooks, self.activation)
             if all((estimates == old_estimates).flatten().tolist()):
                 break
             old_estimates = estimates.clone()

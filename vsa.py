@@ -20,6 +20,7 @@ class VSA:
             model:VSAOptions,
             num_factors: int,
             num_codevectors: int or Tuple[int], # number of vectors per factor, or tuple of number of codevectors for each factor
+            seed: None or int = None,  # random seed
             device = "cpu"
         ):
         super(VSA, self).__init__()
@@ -39,10 +40,12 @@ class VSA:
         if self._check_exists("codebooks.pt"):
             self.codebooks = torch.load(os.path.join(self.root, "codebooks.pt"))
         else:
-            self.codebooks = self.gen_codebooks()
+            self.codebooks = self.gen_codebooks(seed)
 
 
-    def gen_codebooks(self) -> List[hd.VSATensor] or hd.VSATensor:
+    def gen_codebooks(self, seed) -> List[hd.VSATensor] or hd.VSATensor:
+        if seed is not None:
+            torch.manual_seed(seed)
         l = []
         # All factors have the same number of vectors
         if (type(self.num_codevectors) == int):
