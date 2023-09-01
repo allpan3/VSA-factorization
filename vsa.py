@@ -89,9 +89,14 @@ class VSA:
         input: `(b, f, d)` :tensor. b is batch size, f is number of factors, d is dimension
         Return: List[Tuple(int)] of length b
         '''
-        # assert(len(input) == self.num_factors)
-        winners = torch.argmax(torch.abs(hd.dot_similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
-        return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
+        if type(self.codebooks) == list:
+            winners = torch.empty((inputs.size(0), self.num_factors), dtype=torch.int8, device=self.device)
+            for i in range(self.num_factors):
+                winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], self.codebooks[i])), -1)
+            return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
+        else:
+            winners = torch.argmax(torch.abs(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
+            return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
       
     def similarity(self, input: hd.VSATensor, others: hd.VSATensor) -> hd.VSATensor:
         """Inner product with other hypervectors.

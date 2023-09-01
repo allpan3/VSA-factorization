@@ -84,7 +84,9 @@ class Resonator(nn.Module):
             inputs: `(b, d)`. b is batch size, d is dimension
             estimates: `(b, f, d)`. f is number of factors, d is dimension (in the first call estimates is `(f, d)`)
         '''
-        n = estimates.size(-2)
+        f = estimates.size(-2)
+        b = inputs.size(0)
+        d = inputs.size(-1)
 
         # Get binding inverse of the estimates
         inv_estimates = estimates.inverse()
@@ -95,7 +97,7 @@ class Resonator(nn.Module):
         #  [x, z],
         #  [y, x]]
         rolled = []
-        for i in range(1, n):
+        for i in range(1, f):
             rolled.append(inv_estimates.roll(i, -2))
 
         inv_estimates = torch.stack(rolled, dim=-2)
@@ -107,18 +109,19 @@ class Resonator(nn.Module):
         new_estimates = hd.bind(inputs.unsqueeze(-2), inv_others)
 
         if (type(codebooks) == list):
-            similarity = [None] * n
-            output = [None] * n
-            for i in range(n):
-                similarity[i] = self.vsa.similarity(new_estimates[i], codebooks[i])
+            # f elements, each is VSATensor of (b, v)
+            similarity = [None] * f 
+            output = self.vsa.ensure_vsa_tensor(torch.empty((b, f, d)))
+            for i in range(f):
+                # All batches, the i-th factor compared with the i-th codebook
+                similarity[i] = self.vsa.similarity(new_estimates[:,i], codebooks[i]) 
                 if (activation == 'ABS'):
                     similarity[i] = torch.abs(similarity[i])
                 elif (activation == 'NONNEG'):
                     similarity[i][similarity[i] < 0] = 0
 
                 # Dot Product with the respective weights and sum
-                output[i] = hd.dot_similarity(similarity[i], codebooks[i].transpose(-2,-1))
-            output = torch.stack(output)
+                output[:,i] = hd.dot_similarity(similarity[i], codebooks[i].transpose(-2,-1))
         else:
             similarity = self.vsa.similarity(new_estimates.unsqueeze(-2), codebooks)
             if (activation == 'ABS'):

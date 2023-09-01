@@ -2,15 +2,15 @@
 VSA_MODEL = 'MAP'
 
 # Default values
-DIM = 5000
-FACTORS = 6
-CODEVECTORS = 6
-# CODEVECTORS : tuple = (4, 6, 8) 
+DIM = 1000
+FACTORS = 4
+CODEVECTORS = 10
+# CODEVECTORS : tuple = (4, 6, 6, 8) 
 NOISE_LEVEL = 0.0    # compositional vector noise
 ITERATIONS = 100  # max number of iterations for factorization
 NORMALIZE = False    # normalize the initial estimate and the input vector
 ACTIVATION = 'NONE' # 'NONE', 'ABS', 'NONNEG'
-RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
+RESONATOR_TYPE = "CONCURRENT" # "CONCURRENT", "SEQUENTIAL"
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 # So far only MAP allows activation
 if VSA_MODEL == 'BSC':

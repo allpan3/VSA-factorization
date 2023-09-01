@@ -20,7 +20,7 @@ RUN_MODE = "single"
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act-res"
 
-VERBOSE = 3
+VERBOSE = 2
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
 BATCH_SIZE = 1
@@ -103,7 +103,7 @@ def run_factorization(
                 incorrect += 1
                 unconverged[1] += 1 if convergence == it-1 else 0
                 if verbose >= 2:
-                    print(Fore.RED + f"Test {j} failed:" + f"Label = {label}, Outcome = {outcomes[i]}" + Fore.RESET + f"    Convergence: {convergence}")
+                    print(Fore.RED + f"Test {j} failed: " + f"Label = {label}, Outcome = {outcomes[i]}" + Fore.RESET + f"    Convergence: {convergence}")
             else:
                 unconverged[0] += 1 if convergence == it-1 else 0
                 if verbose >= 3:
