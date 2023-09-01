@@ -10,14 +10,16 @@ from const import *
 import time
 from resonator import Resonator
 import csv
+from dataset import VSADataset
+from torch.utils.data import DataLoader
 
 # %%
-# RUN_MODE = "single"
-RUN_MODE = "dim-fac-vec" 
+RUN_MODE = "single"
+# RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act"
 
-VERBOSE = 1
+VERBOSE = 3
 NUM_SAMPLES = 400 # test data
 
 def v_name(num_codevectors):
@@ -28,6 +30,12 @@ def v_name(num_codevectors):
         for i in range(len(num_codevectors)):
             s += f"{num_codevectors[i]},"
         return s[:-1] + "v"
+
+def collate_fn(batch):
+    samples = torch.stack([x[0] for x in batch], dim=0)
+    labels = [x[1] for x in batch]
+    return samples, labels
+
 
 def run_factorization(
         m = VSA_MODEL,
@@ -46,7 +54,7 @@ def run_factorization(
 
     # Checkpoint
     cp = os.path.join(test_dir, f"{m}-{d}-{f}-{v}-{n}-{r}-{it}-{norm}-{act}-{NUM_SAMPLES}.checkpoint")
-    if os.path.exists(cp):
+    if CHECKPOINT and os.path.exists(cp):
         if verbose >= 1:
             print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, r, it, norm, act, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
         return
@@ -61,38 +69,36 @@ def run_factorization(
     )
 
     # Generate test samples
-    sample_file = os.path.join(test_dir, f"samples-{NUM_SAMPLES}s-{n}n.pt")
-    if (os.path.exists(sample_file)):
-        labels, samples = torch.load(sample_file)
-        samples = vsa.ensure_vsa_tensor(samples)
-    else:   
-        labels, samples = vsa.sample(NUM_SAMPLES, num_vectors_supoerposed=1, noise=n)
-        torch.save((labels, samples), sample_file)
+    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, num_vectors_superposed=1, noise=n)
+    dl = DataLoader(ds, batch_size=2, shuffle=False, collate_fn=collate_fn)
 
-    samples = samples.to(device)
     resonator_network = Resonator(vsa, type=r, norm=norm, activation=act, iterations=it, device=device)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
-    for j in tqdm(range(len(labels)), desc=f"Progress", leave=True if verbose >= 1 else False):
-        input = samples[j]
-        label = labels[j]
+    j = 0
+    for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
-        outcome, convergence = resonator_network(input)
+        # Dimension `batch` is added
+        outcomes, convergence = resonator_network(samples)
 
-        if (outcome not in label):
-            incorrect += 1
-            unconverged[1] += 1 if convergence == it-1 else 0
-            if verbose >= 2:
-                print(Fore.RED + f"Test {j} failed:" + f"Label = {label}, Outcome = {outcome}" + Fore.RESET + f"    Convergence: {convergence}")
-        else:
-            unconverged[0] += 1 if convergence == it-1 else 0
-            if verbose >= 3:
-                print(f"Test {j} passed:" + f"Label = {label}, Outcome = {outcome}    Convergence: {convergence}")
-        
+        for i in range(len(labels)):
+            label = labels[i]
+            if (outcomes[i] not in label):
+                incorrect += 1
+                unconverged[1] += 1 if convergence == it-1 else 0
+                if verbose >= 2:
+                    print(Fore.RED + f"Test {j} failed:" + f"Label = {label}, Outcome = {outcomes[i]}" + Fore.RESET + f"    Convergence: {convergence}")
+            else:
+                unconverged[0] += 1 if convergence == it-1 else 0
+                if verbose >= 3:
+                    print(f"Test {j} passed:" + f"Label = {label}, Outcome = {outcomes[i]}    Convergence: {convergence}")
+            j += 1
+
+
     accuracy = (NUM_SAMPLES - incorrect) / NUM_SAMPLES
     if verbose >= 1:
-        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{len(labels)}")
+        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{NUM_SAMPLES}")
 
     # Checkpoint
     with open(cp, "w") as fp:
