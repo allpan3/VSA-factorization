@@ -18,27 +18,13 @@ class Resonator(nn.Module):
         self.device = device
         self.resonator_type = type
         self.norm = norm
-        self.init_estimates = self.gen_init_estimates(vsa.codebooks, norm)
         self.iterations = iterations
         self.activation = activation
 
-    def forward(self, input):
-        return self.resonator_network(input, self.init_estimates, self.vsa.codebooks, self.iterations, self.norm, self.activation)
-
-    def gen_init_estimates(self, codebooks: hd.VSATensor or List[hd.VSATensor], norm: bool) -> hd.VSATensor:
-        if (type(codebooks) == list):
-            guesses = [None] * len(codebooks)
-            for i in range(len(codebooks)):
-                guesses[i] = hd.multiset(codebooks[i])
-            init_estimates = torch.stack(guesses)
-        else:
-            init_estimates = hd.multiset(codebooks)
-
-        if norm:
+    def forward(self, input, init_estimates):
+        if self.norm:
             init_estimates = self.normalize(init_estimates)
-        
-        return init_estimates
-
+        return self.resonator_network(input, init_estimates, self.vsa.codebooks, self.iterations, self.norm, self.activation)
 
     def resonator_network(self, input: hd.VSATensor, estimates: hd.VSATensor, codebooks: hd.VSATensor or list, iterations, norm, activation):
         old_estimates = estimates.clone()
@@ -64,13 +50,17 @@ class Resonator(nn.Module):
                             estimates: hd.VSATensor,
                             codebooks: hd.VSATensor or List[hd.VSATensor],
                             activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
-        n = estimates.size(-2)
         
-        for i in range(n):
-            # Since we only target MAP and BSC, inverse of a vector itself
+        # Get binding inverse of the estimates
+        # Since we only target MAP and BSC, inverse of a vector itself
+        estimates = estimates.inverse()
+
+        for i in range(estimates.size(-2)):
             # Remove the currently processing factor itself
-            others = hd.multibind(estimates.roll(-i, -2)[1:])
-            new_estimate = hd.bind(inputs, others)
+            rolled = estimates.roll(-i, -2)
+            inv_estimates = torch.stack([rolled[j][1:] for j in range(inputs.size(0))])
+            inv_others = hd.multibind(inv_estimates)
+            new_estimate = hd.bind(inputs, inv_others)
 
             similarity = self.vsa.similarity(new_estimate, codebooks[i])
             if (activation == 'ABS'):
@@ -80,7 +70,7 @@ class Resonator(nn.Module):
             
             # Dot Product with the respective weights and sum
             # Update the estimate in place
-            estimates[i] = hd.dot_similarity(similarity, codebooks[i].transpose(-2, -1)).sign()
+            estimates[:,i] = hd.dot_similarity(similarity, codebooks[i].transpose(-2, -1)).sign()
 
         return estimates
 

@@ -12,17 +12,18 @@ from resonator import Resonator
 import csv
 from dataset import VSADataset
 from torch.utils.data import DataLoader
+from typing import List
 
 # %%
 RUN_MODE = "single"
 # RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
-# RUN_MODE = "norm-act"
+# RUN_MODE = "norm-act-res"
 
-VERBOSE = 1
+VERBOSE = 3
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
-BATCH_SIZE = 4
+BATCH_SIZE = 1
 
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
@@ -38,6 +39,17 @@ def collate_fn(batch):
     labels = [x[1] for x in batch]
     return samples, labels
 
+
+def gen_init_estimates(codebooks: hd.VSATensor or List[hd.VSATensor], batch_size) -> hd.VSATensor:
+    if (type(codebooks) == list):
+        guesses = [None] * len(codebooks)
+        for i in range(len(codebooks)):
+            guesses[i] = hd.multiset(codebooks[i])
+        init_estimates = torch.stack(guesses)
+    else:
+        init_estimates = hd.multiset(codebooks)
+    
+    return init_estimates.unsqueeze(0).repeat(batch_size,1,1)
 
 def run_factorization(
         m = VSA_MODEL,
@@ -75,14 +87,15 @@ def run_factorization(
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     resonator_network = Resonator(vsa, type=r, norm=norm, activation=act, iterations=it, device=device)
+    
+    init_estimates = gen_init_estimates(vsa.codebooks, BATCH_SIZE)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
     for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
-        # Dimension `batch` is added
-        outcomes, convergence = resonator_network(samples)
+        outcomes, convergence = resonator_network(samples, init_estimates)
 
         for i in range(len(labels)):
             label = labels[i]
@@ -222,10 +235,11 @@ def test_norm_act_res(device="cpu", verbose=0):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
-    print("Using {} device".format(device))
     torch.set_default_device(device)
 
     os.makedirs("tests", exist_ok=True)
+
+    print(f"Running tests on {device}, batch_size = {BATCH_SIZE}")
 
     start = time.time()
     if RUN_MODE == "single":
@@ -235,7 +249,7 @@ if __name__ == '__main__':
         test_dim_fac_vec(device=device, verbose=VERBOSE)
     elif RUN_MODE == "noise-iter":
         test_noise_iter(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "norm-act":
+    elif RUN_MODE == "norm-act-res":
         test_norm_act_res(device=device, verbose=VERBOSE)
 
     end = time.time()
