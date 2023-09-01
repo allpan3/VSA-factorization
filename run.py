@@ -15,12 +15,12 @@ from torch.utils.data import DataLoader
 from typing import List
 
 # %%
-RUN_MODE = "single"
+# RUN_MODE = "single"
 # RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
-# RUN_MODE = "norm-act-res"
+RUN_MODE = "norm-act-res"
 
-VERBOSE = 0
+VERBOSE = 1
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
 BATCH_SIZE = 1
@@ -220,7 +220,7 @@ def test_norm_act_res(device="cpu", verbose=0):
             for n in NORMALIZE_RANGE:
                 for a in ACTIVATION_RANGE:
                     print(Fore.BLUE + f"Running test with resonator = {r}, normalize = {n}, activation = {a}" + Fore.RESET)
-                    ret = run_factorization(res=r, norm=n, act=a, device=device, verbose=verbose)
+                    ret = run_factorization(r=r, norm=n, act=a, device=device, verbose=verbose)
                     if ret is None:
                         continue
                     _, _, key, val = ret
