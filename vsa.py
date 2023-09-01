@@ -8,6 +8,7 @@ import os.path
 from typing import List, Tuple
 import random
 
+
 # %%
 class VSA:
     # codebooks for each factor
@@ -140,4 +141,3 @@ class VSA:
  
     def _check_exists(self, file) -> bool:
         return utils.check_integrity(os.path.join(self.root, file))
-# %%
