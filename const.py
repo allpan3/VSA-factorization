@@ -4,8 +4,8 @@ VSA_MODEL = 'MAP'
 # Default values
 DIM = 1000
 FACTORS = 4
-CODEVECTORS = 10
-# CODEVECTORS : tuple = (3,3,3,10) 
+# CODEVECTORS = 10
+CODEVECTORS : tuple = (3,3,3,10) 
 NOISE_LEVEL = 0.0    # compositional vector noise
 ITERATIONS = 100  # max number of iterations for factorization
 NORMALIZE = False    # normalize the initial estimate and the input vector

@@ -166,7 +166,7 @@ def test_dim_fac_vec(device="cpu", verbose=0):
 def test_noise_iter(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{RESONATOR_TYPE[0:3].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{RESONATOR_TYPE[0:3].lower()}{"-norm" if NORMALIZE else ""}{"-" + ACTIVATION.lower() if ACTIVATION != "NONE" else ""}.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -207,7 +207,7 @@ def test_noise_iter(device="cpu", verbose=0):
 def test_norm_act_res(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{CODEVECTORS}v-{NOISE_LEVEL}n-{ITERATIONS}i.csv'
+    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{NOISE_LEVEL}n-{ITERATIONS}i.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -235,7 +235,7 @@ def test_norm_act_res(device="cpu", verbose=0):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
-    torch.set_default_device(device)
+    # torch.set_default_device(device)
 
     os.makedirs("tests", exist_ok=True)
 
