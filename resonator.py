@@ -8,7 +8,7 @@ from vsa import VSA
 # %%
 class Resonator(nn.Module):
 
-    def __init__(self, vsa:VSA, type="CONCURRENT", norm=False, activation='NONE', iterations=100, device="cpu"):
+    def __init__(self, vsa:VSA, type="CONCURRENT", norm=False, activation='NONE', iterations=100, argmax_abs=True, device="cpu"):
         super(Resonator, self).__init__()
         self.to(device)
 
@@ -18,6 +18,7 @@ class Resonator(nn.Module):
         self.norm = norm
         self.iterations = iterations
         self.activation = activation
+        self.argmax_abs = argmax_abs
 
     def forward(self, inputs, init_estimates):
         if self.norm:
@@ -38,7 +39,7 @@ class Resonator(nn.Module):
             old_estimates = estimates.clone()
 
         # outcome: the indices of the codevectors in the codebooks
-        outcome = self.vsa.cleanup(estimates)
+        outcome = self.vsa.cleanup(estimates, self.argmax_abs)
 
         return outcome, k 
 

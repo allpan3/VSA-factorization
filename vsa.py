@@ -87,7 +87,7 @@ class VSA:
         elif (self.model == "BSC"):
             return 1 - vector
 
-    def cleanup(self, inputs):
+    def cleanup(self, inputs, abs):
         '''
         input: `(b, f, d)` :tensor. b is batch size, f is number of factors, d is dimension
         Return: List[Tuple(int)] of length b
@@ -95,10 +95,16 @@ class VSA:
         if type(self.codebooks) == list:
             winners = torch.empty((inputs.size(0), self.num_factors), dtype=torch.int8, device=self.device)
             for i in range(self.num_factors):
-                winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], self.codebooks[i])), -1)
+                if abs:
+                    winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], self.codebooks[i])), -1)
+                else:
+                    winners[:,i] = torch.argmax(self.similarity(inputs[:,i], self.codebooks[i]), -1)
             return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
         else:
-            winners = torch.argmax(torch.abs(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
+            if abs:
+                winners = torch.argmax(torch.abs(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
+            else:
+                winners = torch.argmax(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2), -1)
             return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
       
     def similarity(self, input: hd.VSATensor, others: hd.VSATensor) -> hd.VSATensor:
