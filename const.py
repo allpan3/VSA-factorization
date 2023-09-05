@@ -1,21 +1,22 @@
 # %%
-VSA_MODEL = 'MAP'
+VSA_MODEL = 'HARDWARE' # 'SOFTWARE', 'HARDWARE'
 
 # Default values
 DIM = 2000
 FACTORS = 4
-# CODEVECTORS = 10
-CODEVECTORS : tuple = (3,3,3,10) 
-NOISE_LEVEL = 0.0    # compositional vector noise
-ITERATIONS = 1000  # max number of iterations for factorization
-NORMALIZE = False    # normalize the initial estimate and the input vector
-ACTIVATION = 'ABS' # 'NONE', 'ABS', 'NONNEG'
-RESONATOR_TYPE = "CONCURRENT" # "CONCURRENT", "SEQUENTIAL"
-ARGMAX_ABS = False
+CODEVECTORS = 10
+# CODEVECTORS : tuple = (3,3,3,10) 
+NOISE_LEVEL = 0.3    # compositional vector noise
+ITERATIONS = 1000   # max number of iterations for factorization
+NORMALIZE = True    # normalize the initial estimate and the input vector (when the input is a bundled vector)
+ACTIVATION = 'NONE' # 'NONE', 'ABS', 'NONNEG'
+RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
+ARGMAX_ABS = True
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
-# So far only MAP allows activation
-if VSA_MODEL == 'BSC':
-    assert(ACTIVATION == 'NONE')
+
+if VSA_MODEL == 'HARDWARE':
+    # Normalize is always required for hardware model
+    assert(NORMALIZE == True)
 
 # Test ranges
 DIM_RANGE = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]

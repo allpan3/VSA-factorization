@@ -1,9 +1,7 @@
 import torch
 import torch.utils.data as data
-from vsa import VSA
-import torchhd as hd
+from vsa.vsa import VSA
 import os.path
-import random
 
 class VSADataset(data.Dataset):
     def __init__(self, root, num_samples, vsa: VSA, num_vectors_superposed=1, noise=0.0):
@@ -20,7 +18,6 @@ class VSADataset(data.Dataset):
 
         if (os.path.exists(sample_file)):
             self.labels, self.data = torch.load(sample_file)
-            self.data = vsa.ensure_vsa_tensor(self.data)
         else:   
             self.labels, self.data = self.vsa.sample(num_samples, num_vectors_supoerposed=1, noise=noise)
             torch.save((self.labels, self.data), sample_file)

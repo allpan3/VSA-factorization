@@ -1,4 +1,3 @@
-torch-hd
 torch
 torchvision
 tqdm

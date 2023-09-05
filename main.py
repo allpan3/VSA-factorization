@@ -1,24 +1,24 @@
 # %%
-import torchhd as hd
 import torch
-from vsa import VSA
+from torch import Tensor
+from vsa.vsa import VSA
 from colorama import Fore
 import os.path
 from tqdm import tqdm
 import json
 from const import *
 import time
-from resonator import Resonator
+from vsa.resonator import Resonator
 import csv
 from dataset import VSADataset
 from torch.utils.data import DataLoader
 from typing import List
 
 # %%
-# RUN_MODE = "single"
+RUN_MODE = "single"
 # RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
-RUN_MODE = "norm-act-res"
+# RUN_MODE = "norm-act-res"
 
 VERBOSE = 1
 CHECKPOINT = False
@@ -53,14 +53,14 @@ def collate_fn(batch):
     return samples, labels
 
 
-def gen_init_estimates(codebooks: hd.VSATensor or List[hd.VSATensor], batch_size) -> hd.VSATensor:
-    if (type(codebooks) == list):
-        guesses = [None] * len(codebooks)
-        for i in range(len(codebooks)):
-            guesses[i] = hd.multiset(codebooks[i])
+def gen_init_estimates(vsa: VSA, norm: bool, batch_size) -> Tensor:
+    if (type(vsa.codebooks) == list):
+        guesses = [None] * len(vsa.codebooks)
+        for i in range(len(vsa.codebooks)):
+            guesses[i] = vsa.multiset(vsa.codebooks[i], normalize=norm)
         init_estimates = torch.stack(guesses)
     else:
-        init_estimates = hd.multiset(codebooks)
+        init_estimates = vsa.multiset(vsa.codebooks, normalize=norm)
     
     return init_estimates.unsqueeze(0).repeat(batch_size,1,1)
 
@@ -89,8 +89,8 @@ def run_factorization(
 
     vsa = VSA(
         root=test_dir,
-        dim=d,
         model=m,
+        dim=d,
         num_factors=f,
         num_codevectors=v,
         device=device
@@ -100,16 +100,21 @@ def run_factorization(
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, num_vectors_superposed=1, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    resonator_network = Resonator(vsa, type=res, norm=norm, activation=act, iterations=it, argmax_abs=abs, device=device)
+    resonator_network = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
     
-    init_estimates = gen_init_estimates(vsa.codebooks, BATCH_SIZE)
+    init_estimates = gen_init_estimates(vsa, norm, BATCH_SIZE)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
     for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
+        # TODO input normalization should only be applied when the input is a bundled vector
+        # if norm:
+        #     inputs = vsa.normalize(samples)
+        # else:
+        inputs = samples
 
-        outcomes, convergence = resonator_network(samples, init_estimates)
+        outcomes, convergence = resonator_network(inputs, init_estimates)
 
         for i in range(len(labels)):
             label = labels[i]
