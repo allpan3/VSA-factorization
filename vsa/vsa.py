@@ -26,10 +26,6 @@ class VSA:
     # codebooks for each factor
     codebooks: List[Tensor] or Tensor
 
-    supported_dtypes: Set[torch.dtype] = {
-        torch.int8, torch.int16, torch.int32, torch.int64
-    }
-
     def __init__(
             self,
             root: str,
@@ -69,6 +65,11 @@ class VSA:
         # Generate codebooks
         if self._check_exists("codebooks.pt"):
             self.codebooks = torch.load(os.path.join(self.root, "codebooks.pt"))
+            if type(self.codebooks) == list:
+                for i in range(len(self.codebooks)):
+                    self.codebooks[i] = self.codebooks[i].to(self.device)
+            else:
+                self.codebooks = self.codebooks.to(self.device)
         else:
             self.codebooks = self.gen_codebooks(seed)
 
@@ -256,9 +257,9 @@ class VSA:
         # One weight for each vector in inputs
         if weights != None:
             assert(inputs.size(-2) == weights.size(-1))
-            result = torch.matmul(weights.type(torch.long), inputs.type(torch.long))
+            result = torch.matmul(weights.type(torch.float32), inputs.type(torch.float32))
         else:
-            result = torch.sum(inputs, dim=-2, dtype=torch.long)
+            result = torch.sum(inputs, dim=-2, dtype=torch.float32)
         
         if normalize:
             result = torch.where(result < 0, -1, 1).type(inputs.dtype)
@@ -270,9 +271,9 @@ class VSA:
         inputs_as_bipolar = torch.where(inputs == 0, min_one, inputs) 
         if weights != None:
             assert(inputs.size(-2) == weights.size(-1))
-            result = torch.matmul(weights.type(torch.long), inputs_as_bipolar.type(torch.long)) 
+            result = torch.matmul(weights.type(torch.float32), inputs_as_bipolar.type(torch.float32)) 
         else:
-            result = torch.sum(inputs_as_bipolar, dim=-2, dtype=torch.long)
+            result = torch.sum(inputs_as_bipolar, dim=-2, dtype=torch.float32)
 
         if normalize:
             result = torch.where(result < 0, 0, 1).type(inputs.dtype)
@@ -289,7 +290,7 @@ class VSA:
         """
         if others.dim() >= 2:
             others = others.transpose(-2, -1)
-        return torch.matmul(input.type(torch.long), others.type(torch.long))
+        return torch.matmul(input.type(torch.float32), others.type(torch.float32))
 
     def _similarity_hardware(self, input: Tensor, others: Tensor) -> Tensor:
         '''Hamming similarity-like implementation except add -1 when unequal.
@@ -305,7 +306,7 @@ class VSA:
         else:
             bipolar = torch.where(input == others, 1, -1)
 
-        return torch.sum(bipolar , dim=-1, dtype=torch.long)
+        return torch.sum(bipolar, dim=-1, dtype=torch.float32)
 
     def normalize(self, input):
         if self.model == "SOFTWARE":

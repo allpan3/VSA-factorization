@@ -15,15 +15,15 @@ from torch.utils.data import DataLoader
 from typing import List
 
 # %%
-RUN_MODE = "single"
-# RUN_MODE = "dim-fac-vec" 
+# RUN_MODE = "single"
+RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act-res"
 
 VERBOSE = 1
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
-BATCH_SIZE = 1
+BATCH_SIZE = 4
 
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
