@@ -80,8 +80,8 @@ class Resonator(nn.Module):
                                activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
         '''
         ARGS:
-            inputs: `(*, d)`. b is batch size, d is dimension (b dimension is optional)
-            estimates: `(b, f, d)`. f is number of factors, d is dimension (in the first call estimates is `(f, d)`)
+            inputs: `(*, d)`. d is dimension (b dim is optional)
+            estimates: `(b, f, d)`. b is batch size, f is number of factors, d is dimension
         '''
         f = estimates.size(-2)
         if inputs.dim() == 1:

@@ -254,7 +254,7 @@ class VSA:
             assert(inputs.size(-2) == weights.size(-1))
             result = torch.matmul(weights.type(torch.float32), inputs.type(torch.float32))
         else:
-            result = torch.sum(inputs, dim=-2, dtype=torch.float32)
+            result = torch.sum(inputs, dim=-2, dtype=torch.int64)
         
         if normalize:
             result = torch.where(result < 0, -1, 1).type(inputs.dtype)
@@ -268,7 +268,7 @@ class VSA:
             assert(inputs.size(-2) == weights.size(-1))
             result = torch.matmul(weights.type(torch.float32), inputs_as_bipolar.type(torch.float32)) 
         else:
-            result = torch.sum(inputs_as_bipolar, dim=-2, dtype=torch.float32)
+            result = torch.sum(inputs_as_bipolar, dim=-2, dtype=torch.int64)
 
         if normalize:
             result = torch.where(result < 0, 0, 1).type(inputs.dtype)
@@ -301,7 +301,7 @@ class VSA:
         else:
             bipolar = torch.where(input == others, 1, -1)
 
-        return torch.sum(bipolar, dim=-1, dtype=torch.float32)
+        return torch.sum(bipolar, dim=-1, dtype=torch.int64)
 
     def normalize(self, input):
         if self.model == "SOFTWARE":

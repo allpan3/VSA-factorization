@@ -108,7 +108,7 @@ def run_factorization(
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
     for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
-        # TODO input normalization should only be applied when the input is a bundled vector
+        # TODO input normalization should only be applied when the input is a bundled vector and only for SOFTWARE model
         # if norm:
         #     inputs = vsa.normalize(samples)
         # else:
