@@ -138,23 +138,12 @@ class Resonator(nn.Module):
         
         return output
 
-    def get_resonator_inputs(self, normalize: bool, batch_size: int, reorder: bool = False) -> (List[Tensor] or Tensor, Tensor, List[int]) :
+    def get_init_estimates(self, codebooks = None, normalize: bool = True, batch_size: int = 1) -> Tensor:
         """
         Generate the initial estimates as well as reorder codebooks for the resonator network.
         """
-        codebooks = self.vsa.codebooks
-
-        if reorder:
-            # Sort the codebooks by length, so that the longest codebook is processed first
-            # Experiments show that this produces the best results for sequential resonator, and doesn't affect concurrent resonator
-            codebooks = sorted(self.vsa.codebooks, key=len, reverse=True)
-            # Remember the original indice of the codebooks for reordering later
-            indices = sorted(range(len(self.vsa.codebooks)), key=lambda k: len(self.vsa.codebooks[k]), reverse=True)
-            indices = [indices.index(i) for i in range(len(indices))]
-            try:
-                codebooks = torch.stack(codebooks)
-            except:
-                pass
+        if codebooks == None:
+            codebooks = self.vsa.codebooks
 
         if (type(codebooks) == list):
             guesses = [None] * len(codebooks)
@@ -164,7 +153,27 @@ class Resonator(nn.Module):
         else:
             init_estimates = self.vsa.multiset(codebooks, normalize=normalize)
         
-        return codebooks, init_estimates.unsqueeze(0).repeat(batch_size,1,1), indices if reorder else None
+        return init_estimates.unsqueeze(0).repeat(batch_size,1,1)
 
-    
+    def reorder_codebooks(self, orig_codebooks: List[Tensor] or Tensor = None) -> (List[Tensor] or Tensor, List[int]):
+        """
+        RETURNS:
+            codebooks: reordered codebooks
+            indices: the original indices of the new codebooks
+        """
+        if orig_codebooks == None:
+            orig_codebooks = self.vsa.codebooks
+        # Sort the codebooks by length, so that the longest codebook is processed first
+        # Experiments show that this produces the best results for sequential resonator, and doesn't affect concurrent resonator
+        codebooks = sorted(orig_codebooks, key=len, reverse=True)
+        # Remember the original indice of the codebooks for reordering later
+        indices = sorted(range(len(orig_codebooks)), key=lambda k: len(orig_codebooks[k]), reverse=True)
+        indices = [indices.index(i) for i in range(len(indices))]
+        try:
+            codebooks = torch.stack(codebooks)
+        except:
+            pass
+            
+        return codebooks, indices
+
 # %%

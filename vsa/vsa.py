@@ -123,7 +123,7 @@ class VSA:
         
         if type(codebooks) == list:
             winners = torch.empty((inputs.size(0), self.num_factors), dtype=torch.int8, device=self.device)
-            for i in range(self.num_factors):
+            for i in range(len(codebooks)):
                 if abs:
                     winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], codebooks[i])), -1)
                 else:

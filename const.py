@@ -13,6 +13,9 @@ NORMALIZE = True    # normalize the initial estimate and the input vector (when 
 ACTIVATION = 'NONE'  # 'NONE', 'ABS', 'NONNEG'
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
 ARGMAX_ABS = True
+FACTOR_KNOWN = True
+REORDER_CODEBOOKS = True
+
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
 if VSA_MODEL == 'HARDWARE':

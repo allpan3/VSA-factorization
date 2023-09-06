@@ -45,11 +45,15 @@ def argmax_name(abs):
 def res_name(res):
     return res[0:3].lower()
 
-
 def collate_fn(batch):
     samples = torch.stack([x[0] for x in batch], dim=0)
     labels = [x[1] for x in batch]
     return samples, labels
+
+def get_factor_codebooks(vsa: VSA):
+    # The first factor is known. Only factorize the remaining factors
+    codebooks = vsa.codebooks[1:]
+    return codebooks
 
 
 def run_factorization(
@@ -90,18 +94,35 @@ def run_factorization(
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
+
+    codebooks = None
+    orig_indices = None
+    if FACTOR_KNOWN:
+        codebooks = get_factor_codebooks(vsa)
+
+    if REORDER_CODEBOOKS:
+        codebooks, orig_indices = rn.reorder_codebooks(codebooks)
     
-    codebooks, init_estimates, orig_indices = rn.get_resonator_inputs(norm, BATCH_SIZE)
+    init_estimates = rn.get_init_estimates(codebooks, norm, BATCH_SIZE)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
     for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
+
+        inputs = samples
+        # TODO the case where multiple vectors are supoerposed is more complicated and may require code structure change
+        #      for now we attempt to unbind the first factor of the first vector from the input (batch considered).
+        #      If a second vector exists, the result produced will be incorrect
+        if FACTOR_KNOWN:
+            # The first factor is known. Only factorize the remaining factors
+            idx = torch.tensor([labels[i][0][0] for i in range(len(labels))])
+            inputs = vsa.bind(inputs, vsa.codebooks[0][idx])
+            labels = [[label[i][1:] for i in range(len(label))] for label in labels]
+
         # TODO input normalization should only be applied when the input is a bundled vector and only for SOFTWARE model
         # if norm:
-        #     inputs = vsa.normalize(samples)
-        # else:
-        inputs = samples
+        #     inputs = vsa.normalize(inputs)
 
         outcomes, convergence = rn(inputs, init_estimates, codebooks, orig_indices)
 
