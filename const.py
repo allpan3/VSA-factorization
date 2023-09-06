@@ -7,10 +7,10 @@ FACTORS = 4
 CODEVECTORS = 10
 # CODEVECTORS : tuple = (3,3,3,10) 
 NOISE_LEVEL = 0.0   # compositional vector noise
-ITERATIONS = 100    # max number of iterations for factorization
+ITERATIONS = 1000    # max number of iterations for factorization
 NORMALIZE = True    # normalize the initial estimate and the input vector (when the input is a bundled vector)
 ACTIVATION = 'NONE' # 'NONE', 'ABS', 'NONNEG'
-RESONATOR_TYPE = "CONCURRENT" # "CONCURRENT", "SEQUENTIAL"
+RESONATOR_TYPE = "CONCURRENT" # "CONCURRENT", "SEQUENTIAL", "COMBO"
 ARGMAX_ABS = True
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 

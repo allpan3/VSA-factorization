@@ -29,7 +29,7 @@ class VSA:
     def __init__(
             self,
             root: str,
-            model: Literal['SOFTWARE', 'hardware'],
+            model: Literal['SOFTWARE', 'HARDWARE'],
             dim: int,
             num_factors: int,
             num_codevectors: int or Tuple[int], # number of vectors per factor, or tuple of number of codevectors for each factor
@@ -64,12 +64,7 @@ class VSA:
 
         # Generate codebooks
         if self._check_exists("codebooks.pt"):
-            self.codebooks = torch.load(os.path.join(self.root, "codebooks.pt"))
-            if type(self.codebooks) == list:
-                for i in range(len(self.codebooks)):
-                    self.codebooks[i] = self.codebooks[i].to(self.device)
-            else:
-                self.codebooks = self.codebooks.to(self.device)
+            self.codebooks = torch.load(os.path.join(self.root, "codebooks.pt"), map_location=self.device)
         else:
             self.codebooks = self.gen_codebooks(seed)
 

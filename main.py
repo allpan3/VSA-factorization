@@ -1,4 +1,3 @@
-# %%
 import torch
 from torch import Tensor
 from vsa.vsa import VSA
@@ -15,15 +14,15 @@ from torch.utils.data import DataLoader
 from typing import List
 
 # %%
-# RUN_MODE = "single"
-RUN_MODE = "dim-fac-vec" 
+RUN_MODE = "single"
+# RUN_MODE = "dim-fac-vec" 
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act-res"
 
 VERBOSE = 1
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
-BATCH_SIZE = 4
+BATCH_SIZE = 1
 
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
@@ -81,7 +80,7 @@ def run_factorization(
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
 
     # Checkpoint
-    cp = os.path.join(test_dir, f"{m}m-{d}d-{f}f-{v}v-{n}n-{res_name(res)}-{it}i-{norm_name(norm)}-{act_name(act)}-{argmax_name(abs)}-{NUM_SAMPLES}s.checkpoint")
+    cp = os.path.join(test_dir, f"{m}m-{d}d-{f}f-{v_name(v)}v-{n}n-{res_name(res)}-{it}i-{norm_name(norm)}-{act_name(act)}-{argmax_name(abs)}-{NUM_SAMPLES}s.checkpoint")
     if CHECKPOINT and os.path.exists(cp):
         if verbose >= 1:
             print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(norm), act_name(act), (argmax_name(abs)), NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
@@ -93,6 +92,7 @@ def run_factorization(
         dim=d,
         num_factors=f,
         num_codevectors=v,
+        seed = 0,
         device=device
     )
 

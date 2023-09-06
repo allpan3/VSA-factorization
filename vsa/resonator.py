@@ -22,13 +22,20 @@ class Resonator(nn.Module):
     def forward(self, inputs, init_estimates):
         return self.resonator_network(inputs, init_estimates, self.vsa.codebooks, self.iterations, self.activation)
 
-    def resonator_network(self, inputs: Tensor, estimates: Tensor, codebooks: Tensor or List[Tensor], iterations, activation):
-        old_estimates = estimates.clone()
+    def resonator_network(self, inputs: Tensor, init_estimates: Tensor, codebooks: Tensor or List[Tensor], iterations, activation):
+        # Must clone, otherwise the original init_estiamtes will be modified
+        estimates = init_estimates.clone()
+        old_estimates = init_estimates.clone()
         for k in range(iterations):
             if (self.resonator_type == "SEQUENTIAL"):
                 estimates = self.resonator_stage_seq(inputs, estimates, codebooks, activation)
             elif (self.resonator_type == "CONCURRENT"):
                 estimates = self.resonator_stage_concur(inputs, estimates, codebooks, activation)
+            elif (self.resonator_type == "COMBO"):
+                if k == 0:
+                    estimates = self.resonator_stage_concur(inputs, estimates, codebooks, activation)
+                else:
+                    estimates = self.resonator_stage_seq(inputs, estimates, codebooks, activation)
             if all((estimates == old_estimates).flatten().tolist()):
                 break
             old_estimates = estimates.clone()
@@ -50,11 +57,11 @@ class Resonator(nn.Module):
         for i in range(estimates.size(-2)):
             # Remove the currently processing factor itself
             rolled = estimates.roll(-i, -2)
-            inv_estimates = torch.stack([rolled[j][1:] for j in range(inputs.size(0))])
+            inv_estimates = torch.stack([rolled[j][1:] for j in range(estimates.size(0))])
             inv_others = self.vsa.multibind(inv_estimates)
-            new_estimate = self.vsa.bind(inputs, inv_others)
+            new_estimates = self.vsa.bind(inputs, inv_others)
 
-            similarity = self.vsa.similarity(new_estimate, codebooks[i])
+            similarity = self.vsa.similarity(new_estimates, codebooks[i])
             if (activation == 'ABS'):
                 similarity = torch.abs(similarity)
             elif (activation == 'NONNEG'):
@@ -73,11 +80,14 @@ class Resonator(nn.Module):
                                activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
         '''
         ARGS:
-            inputs: `(b, d)`. b is batch size, d is dimension
+            inputs: `(*, d)`. b is batch size, d is dimension (b dimension is optional)
             estimates: `(b, f, d)`. f is number of factors, d is dimension (in the first call estimates is `(f, d)`)
         '''
         f = estimates.size(-2)
-        b = inputs.size(0)
+        if inputs.dim() == 1:
+            b = 1
+        else:
+            b = inputs.size(0)
         d = inputs.size(-1)
 
         # Since we only target MAP, inverse of a vector itself
@@ -123,7 +133,7 @@ class Resonator(nn.Module):
 
             # Dot Product with the respective weights and sum
             output = self.vsa.multiset(codebooks, similarity, normalize=True).squeeze(-2)
-
+        
         return output
 
     
