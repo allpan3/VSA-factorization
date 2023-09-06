@@ -19,35 +19,37 @@ class Resonator(nn.Module):
         self.activation = activation
         self.argmax_abs = argmax_abs
 
-    def forward(self, inputs, init_estimates):
-        return self.resonator_network(inputs, init_estimates, self.vsa.codebooks, self.iterations, self.activation)
+    def forward(self, input, init_estimates, codebooks = None, orig_indices: List[int] = None):
+        if codebooks == None:
+            codebooks = self.vsa.codebooks
+        estimates, convergence = self.resonator_network(input, init_estimates, codebooks)
+        # outcome: the indices of the codevectors in the codebooks
+        outcome = self.vsa.cleanup(estimates, codebooks, self.argmax_abs)
+        # Reorder the outcome to the original codebook order
+        if (orig_indices != None):
+            outcome = [tuple([outcome[j][i] for i in orig_indices]) for j in range(len(outcome))]
 
-    def resonator_network(self, inputs: Tensor, init_estimates: Tensor, codebooks: Tensor or List[Tensor], iterations, activation):
+        return outcome, convergence
+
+    def resonator_network(self, input: Tensor, init_estimates: Tensor, codebooks: Tensor or List[Tensor]):
         # Must clone, otherwise the original init_estiamtes will be modified
         estimates = init_estimates.clone()
         old_estimates = init_estimates.clone()
-        for k in range(iterations):
+        for k in range(self.iterations):
             if (self.resonator_type == "SEQUENTIAL"):
-                estimates = self.resonator_stage_seq(inputs, estimates, codebooks, activation)
+                estimates = self.resonator_stage_seq(input, estimates, codebooks, self.activation)
             elif (self.resonator_type == "CONCURRENT"):
-                estimates = self.resonator_stage_concur(inputs, estimates, codebooks, activation)
-            elif (self.resonator_type == "COMBO"):
-                if k == 0:
-                    estimates = self.resonator_stage_concur(inputs, estimates, codebooks, activation)
-                else:
-                    estimates = self.resonator_stage_seq(inputs, estimates, codebooks, activation)
+                estimates = self.resonator_stage_concur(input, estimates, codebooks, self.activation)
+
             if all((estimates == old_estimates).flatten().tolist()):
                 break
             old_estimates = estimates.clone()
 
-        # outcome: the indices of the codevectors in the codebooks
-        outcome = self.vsa.cleanup(estimates, self.argmax_abs)
-
-        return outcome, k 
+        return estimates, k 
 
 
     def resonator_stage_seq(self,
-                            inputs: Tensor,
+                            input: Tensor,
                             estimates: Tensor,
                             codebooks: Tensor or List[Tensor],
                             activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
@@ -59,7 +61,7 @@ class Resonator(nn.Module):
             rolled = estimates.roll(-i, -2)
             inv_estimates = torch.stack([rolled[j][1:] for j in range(estimates.size(0))])
             inv_others = self.vsa.multibind(inv_estimates)
-            new_estimates = self.vsa.bind(inputs, inv_others)
+            new_estimates = self.vsa.bind(input, inv_others)
 
             similarity = self.vsa.similarity(new_estimates, codebooks[i])
             if (activation == 'ABS'):
@@ -74,21 +76,21 @@ class Resonator(nn.Module):
         return estimates
 
     def resonator_stage_concur(self,
-                               inputs: Tensor,
+                               input: Tensor,
                                estimates: Tensor,
                                codebooks: Tensor or List[Tensor],
                                activation: Literal['NONE', 'ABS', 'NONNEG'] = 'NONE'):
         '''
         ARGS:
-            inputs: `(*, d)`. d is dimension (b dim is optional)
+            input: `(*, d)`. d is dimension (b dim is optional)
             estimates: `(b, f, d)`. b is batch size, f is number of factors, d is dimension
         '''
         f = estimates.size(-2)
-        if inputs.dim() == 1:
+        if input.dim() == 1:
             b = 1
         else:
-            b = inputs.size(0)
-        d = inputs.size(-1)
+            b = input.size(0)
+        d = input.size(-1)
 
         # Since we only target MAP, inverse of a vector itself
 
@@ -107,7 +109,7 @@ class Resonator(nn.Module):
         inv_others = self.vsa.multibind(estimates)
 
         # Then unbind all other estimates from the input: s * (x * y), s * (x * z), s * (y * z)
-        new_estimates = self.vsa.bind(inputs.unsqueeze(-2), inv_others)
+        new_estimates = self.vsa.bind(input.unsqueeze(-2), inv_others)
 
         if (type(codebooks) == list):
             # f elements, each is VSATensor of (b, v)
@@ -135,6 +137,34 @@ class Resonator(nn.Module):
             output = self.vsa.multiset(codebooks, similarity, normalize=True).squeeze(-2)
         
         return output
+
+    def get_resonator_inputs(self, normalize: bool, batch_size: int, reorder: bool = False) -> (List[Tensor] or Tensor, Tensor, List[int]) :
+        """
+        Generate the initial estimates as well as reorder codebooks for the resonator network.
+        """
+        codebooks = self.vsa.codebooks
+
+        if reorder:
+            # Sort the codebooks by length, so that the longest codebook is processed first
+            # Experiments show that this produces the best results for sequential resonator, and doesn't affect concurrent resonator
+            codebooks = sorted(self.vsa.codebooks, key=len, reverse=True)
+            # Remember the original indice of the codebooks for reordering later
+            indices = sorted(range(len(self.vsa.codebooks)), key=lambda k: len(self.vsa.codebooks[k]), reverse=True)
+            indices = [indices.index(i) for i in range(len(indices))]
+            try:
+                codebooks = torch.stack(codebooks)
+            except:
+                pass
+
+        if (type(codebooks) == list):
+            guesses = [None] * len(codebooks)
+            for i in range(len(codebooks)):
+                guesses[i] = self.vsa.multiset(codebooks[i], normalize=normalize)
+            init_estimates = torch.stack(guesses)
+        else:
+            init_estimates = self.vsa.multiset(codebooks, normalize=normalize)
+        
+        return codebooks, init_estimates.unsqueeze(0).repeat(batch_size,1,1), indices if reorder else None
 
     
 # %%

@@ -52,17 +52,6 @@ def collate_fn(batch):
     return samples, labels
 
 
-def gen_init_estimates(vsa: VSA, norm: bool, batch_size) -> Tensor:
-    if (type(vsa.codebooks) == list):
-        guesses = [None] * len(vsa.codebooks)
-        for i in range(len(vsa.codebooks)):
-            guesses[i] = vsa.multiset(vsa.codebooks[i], normalize=norm)
-        init_estimates = torch.stack(guesses)
-    else:
-        init_estimates = vsa.multiset(vsa.codebooks, normalize=norm)
-    
-    return init_estimates.unsqueeze(0).repeat(batch_size,1,1)
-
 def run_factorization(
         m = VSA_MODEL,
         d = DIM,
@@ -100,9 +89,9 @@ def run_factorization(
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, num_vectors_superposed=1, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    resonator_network = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
+    rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
     
-    init_estimates = gen_init_estimates(vsa, norm, BATCH_SIZE)
+    codebooks, init_estimates, orig_indices = rn.get_resonator_inputs(norm, BATCH_SIZE)
 
     incorrect = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -114,7 +103,7 @@ def run_factorization(
         # else:
         inputs = samples
 
-        outcomes, convergence = resonator_network(inputs, init_estimates)
+        outcomes, convergence = rn(inputs, init_estimates, codebooks, orig_indices)
 
         for i in range(len(labels)):
             label = labels[i]

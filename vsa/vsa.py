@@ -113,24 +113,27 @@ class VSA:
         # print("Verify noise:" + str(self.similarity(orig, vector)))
         return vector.to(self.device)
 
-    def cleanup(self, inputs, abs):
+    def cleanup(self, inputs, codebooks = None, abs = True):
         '''
         input: `(b, f, d)` :tensor. b is batch size, f is number of factors, d is dimension
         Return: List[Tuple(int)] of length b
         '''
-        if type(self.codebooks) == list:
+        if codebooks == None:
+            codebooks = self.codebooks
+        
+        if type(codebooks) == list:
             winners = torch.empty((inputs.size(0), self.num_factors), dtype=torch.int8, device=self.device)
             for i in range(self.num_factors):
                 if abs:
-                    winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], self.codebooks[i])), -1)
+                    winners[:,i] = torch.argmax(torch.abs(self.similarity(inputs[:,i], codebooks[i])), -1)
                 else:
-                    winners[:,i] = torch.argmax(self.similarity(inputs[:,i], self.codebooks[i]), -1)
+                    winners[:,i] = torch.argmax(self.similarity(inputs[:,i], codebooks[i]), -1)
             return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
         else:
             if abs:
-                winners = torch.argmax(torch.abs(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2)), -1)
+                winners = torch.argmax(torch.abs(self.similarity(inputs.unsqueeze(-2), codebooks).squeeze(-2)), -1)
             else:
-                winners = torch.argmax(self.similarity(inputs.unsqueeze(-2), self.codebooks).squeeze(-2), -1)
+                winners = torch.argmax(self.similarity(inputs.unsqueeze(-2), codebooks).squeeze(-2), -1)
             return [tuple(winners[i].tolist()) for i in range(winners.size(0))]
       
 

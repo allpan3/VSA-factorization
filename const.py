@@ -5,15 +5,13 @@ VSA_MODEL = 'SOFTWARE' # 'SOFTWARE', 'HARDWARE'
 DIM = 2000
 FACTORS = 4
 # CODEVECTORS = 10
-# CODEVECTORS : tuple = (3,3,3,10) 
-CODEVECTORS : tuple = (10,3,3,3) 
+CODEVECTORS : tuple = (3,3,3,10) 
 # CODEVECTORS : tuple = (3,3,7,10) 
-# CODEVECTORS : tuple = (10,7,3,3)
 NOISE_LEVEL = 0.0   # compositional vector noise
 ITERATIONS = 500    # max number of iterations for factorization
 NORMALIZE = True    # normalize the initial estimate and the input vector (when the input is a bundled vector)
 ACTIVATION = 'NONE'  # 'NONE', 'ABS', 'NONNEG'
-RESONATOR_TYPE = "CONCURRENT" # "CONCURRENT", "SEQUENTIAL", "COMBO"
+RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
 ARGMAX_ABS = True
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
