@@ -1,6 +1,6 @@
 import torch
 import torch.utils.data as data
-from vsa.vsa import VSA
+from vsa import VSA
 import os.path
 
 class VSADataset(data.Dataset):

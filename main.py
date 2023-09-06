@@ -1,13 +1,12 @@
 import torch
 from torch import Tensor
-from vsa.vsa import VSA
+from vsa import VSA, Resonator
 from colorama import Fore
 import os.path
 from tqdm import tqdm
 import json
-from const import *
+from config import *
 import time
-from vsa.resonator import Resonator
 import csv
 from dataset import VSADataset
 from torch.utils.data import DataLoader

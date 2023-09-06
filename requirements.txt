@@ -2,3 +2,4 @@ torch
 torchvision
 tqdm
 colorama
+pyvsa @ git+https://github.com/allpan3/pyvsa.git
