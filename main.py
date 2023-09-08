@@ -12,17 +12,6 @@ from dataset import VSADataset
 from torch.utils.data import DataLoader
 from typing import List
 
-# %%
-RUN_MODE = "single"
-# RUN_MODE = "dim-fac-vec" 
-# RUN_MODE = "noise-iter"
-# RUN_MODE = "norm-act-res"
-
-VERBOSE = 1
-CHECKPOINT = False
-NUM_SAMPLES = 400 # test data
-BATCH_SIZE = 1
-
 def v_name(num_codevectors):
     if type(num_codevectors) == int:
         return f"{num_codevectors}v"
@@ -49,14 +38,122 @@ def collate_fn(batch):
     labels = [x[1] for x in batch]
     return samples, labels
 
-def get_factor_codebooks(vsa: VSA):
-    # The first factor is known. Only factorize the remaining factors
-    codebooks = vsa.codebooks[1:]
-    return codebooks
+def get_similarity(v1, v2):
+    if VSA_MODE == "SOFTWARE":
+        dtype = torch.get_default_dtype()
+        self_dot = torch.sum(v1 * v1, dim=-1, dtype=dtype)
+        self_mag = torch.sqrt(self_dot)
+        others_dot = torch.sum(v2 * v2, dim=-1, dtype=dtype)
+        others_mag = torch.sqrt(others_dot)
+        magnitude = self_mag * others_mag
+        magnitude = torch.clamp(magnitude, min=1e-08)
+        return torch.matmul(v1.type(torch.float32), v2.type(torch.float32)) / magnitude
+    else:
+        return torch.sum(torch.where(v1 == v2, 1, -1), dim=-1) / DIM
+
+def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
+    """
+    Subtract every extracted vector from the original input and repeat the process NUM_VEC_SUPERPOSED times 
+    This method only works with unnormalized inputs, i.e. hardware mode will not work
+    Initial estiamtes are the multiset of all codevectors
+    """
+    assert(VSA_MODE == "SOFTWARE")
+
+    inputs = inputs.clone()
+
+    outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
+    convergence = [0] * inputs.size(0)
+
+    for _ in range(NUM_VEC_SUPERPOSED):
+        if norm:
+            inputs_ = vsa.normalize(inputs)
+        else:
+            inputs_ = inputs
+
+        outcome, converg = rn(inputs_, init_estimates, codebooks, orig_indices) 
+
+        # Split batch results
+        for i in range(len(outcome)):
+            outcomes[i].append(outcome[i])
+            convergence[i] += converg
+
+            # Get the compositional vector and subtract it from the input
+            vector = vsa[[outcome[i]]]
+            inputs[i] = inputs[i] - vector 
+    
+    return outcomes, convergence
+
+def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
+    """
+    Run the resonator a predefined number of times with different, randomly generated initial estimates.
+    Reduce the final results to remove the duplicated vectors. The remainder are expected to contain all
+    superposed vectors and should not contain any non-existing vectors.
+    """
+    inputs = inputs.clone()
+
+    outcomes = [set() for _ in range(inputs.size(0))]  # num of batches
+    convergence = [0] * inputs.size(0)
+
+    if norm:
+        # This is essentially the same as hardware mode
+        inputs = vsa.normalize(inputs)
+
+    for _ in range(TRIALS):
+        # Pure random
+        init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
+
+        outcome, converg = rn(inputs, init_estimates, codebooks, orig_indices)
+
+        # Split batch results
+        for i in range(len(outcome)):
+            outcomes[i].add(outcome[i])
+            convergence[i] += converg
+        
+        # As soon as the required number of vectors are extracted, stop
+        if all([len(outcomes[i]) == NUM_VEC_SUPERPOSED for i in range(len(outcomes))]):
+            break
+        
+    return outcomes, convergence
+
+
+def algo3(vsa, rn, inputs, norm):
+    """
+    """
+    inputs = inputs.clone()
+
+    codebooks = vsa.codebooks[0:-1]
+    orig_indices = None
+    id_cb = vsa.codebooks[-1]
+
+    # Reordering and init estiamtes are the same for every sample, but we have to put it here since we must remove the ID codebook first
+    if REORDER_CODEBOOKS:
+        codebooks, orig_indices = rn.reorder_codebooks(codebooks)
+
+    init_estimates = rn.get_init_estimates(codebooks, norm if VSA_MODE == "SOFTWARE" else True, BATCH_SIZE)
+
+    if norm:
+        # This is essentially the same as hardware mode
+        inputs = vsa.normalize(inputs)
+
+    outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
+    convergence = [0] * inputs.size(0)
+
+    for k in range(NUM_VEC_SUPERPOSED):
+        # Unbind the ID
+        inputs_ = vsa.bind(inputs, id_cb[k])
+
+        outcome, converg = rn(inputs_, init_estimates, codebooks, orig_indices)
+
+        # Split batch results
+        for i in range(len(outcome)):
+            outcomes[i].append(outcome[i])
+            convergence[i] += converg
+        
+    return outcomes, convergence
 
 
 def run_factorization(
-        m = VSA_MODEL,
+        m = VSA_MODE,
         d = DIM,
         f = FACTORS,
         v = CODEVECTORS,
@@ -72,74 +169,95 @@ def run_factorization(
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
 
     # Checkpoint
-    cp = os.path.join(test_dir, f"{m}m-{d}d-{f}f-{v_name(v)}v-{n}n-{res_name(res)}-{it}i-{norm_name(norm)}-{act_name(act)}-{argmax_name(abs)}-{NUM_SAMPLES}s.checkpoint")
+    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{v_name(v)}-{n}n-{res_name(res)}-{it}i-{norm_name(norm)}-{act_name(act)}-{argmax_name(abs)}-{NUM_VEC_SUPERPOSED}s-{NUM_SAMPLES}s.checkpoint")
     if CHECKPOINT and os.path.exists(cp):
         if verbose >= 1:
-            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(norm), act_name(act), (argmax_name(abs)), NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
+            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(norm), act_name(act), (argmax_name(abs)), {NUM_VEC_SUPERPOSED}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
         return
 
     vsa = VSA(
         root=test_dir,
-        model=m,
+        mode=m,
         dim=d,
         num_factors=f,
         num_codevectors=v,
-        seed = 0,
+        seed = None,
         device=device
     )
 
     # Generate test samples
-    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, num_vectors_superposed=1, noise=n)
+    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
 
     codebooks = None
     orig_indices = None
-    if FACTOR_KNOWN:
-        codebooks = get_factor_codebooks(vsa)
 
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
-    
-    init_estimates = rn.get_init_estimates(codebooks, norm, BATCH_SIZE)
 
-    incorrect = 0
+    init_estimates = rn.get_init_estimates(codebooks, norm if VSA_MODE == "SOFTWARE" else True, BATCH_SIZE)
+
+    incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
     for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
-        inputs = samples
-        # TODO the case where multiple vectors are supoerposed is more complicated and may require code structure change
-        #      for now we attempt to unbind the first factor of the first vector from the input (batch considered).
-        #      If a second vector exists, the result produced will be incorrect
-        if FACTOR_KNOWN:
-            # The first factor is known. Only factorize the remaining factors
-            idx = torch.tensor([labels[i][0][0] for i in range(len(labels))])
-            inputs = vsa.bind(inputs, vsa.codebooks[0][idx])
-            labels = [[label[i][1:] for i in range(len(label))] for label in labels]
+        if (NUM_VEC_SUPERPOSED == 1):
+            outcome, convergence = rn(samples, init_estimates, codebooks, orig_indices)
+            # Make them the same format as multi-vector for easier parsing
+            outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
+            convergences = [convergence] * BATCH_SIZE
+        else:
+            if ALGO == "ALGO1":
+                outcomes, convergences = algo1(vsa, rn, samples, init_estimates, codebooks, orig_indices, norm)
+            elif ALGO == "ALGO2":
+                outcomes, convergences = algo2(vsa, rn, samples, d, f, codebooks, orig_indices, norm)
+            elif ALGO == "ALGO3":
+                outcomes, convergences = algo3(vsa, rn, samples, norm)
 
-        # TODO input normalization should only be applied when the input is a bundled vector and only for SOFTWARE model
-        # if norm:
-        #     inputs = vsa.normalize(inputs)
+        ## Analyze results
+        # Batch
+        for k in range(len(labels)):
+            message = ""
+            incorrect = False
+            label = labels[k]
+            outcome = outcomes[k]
+            convergence = convergences[k]
+            sim_per_vec = []
 
-        outcomes, convergence = rn(inputs, init_estimates, codebooks, orig_indices)
+            # Multiple vectors superposed
+            for i in range(len(label)):
+                if (label[i] not in outcome):
+                    incorrect = True
+                    message += Fore.RED + "Vector {} is not detected.".format(label[i]) + Fore.RESET + "\n"
+                else:
+                    message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
-        for i in range(len(labels)):
-            label = labels[i]
-            if (outcomes[i] not in label):
-                incorrect += 1
-                unconverged[1] += 1 if convergence == it-1 else 0
+                if ALGO == "ALGO3":
+                    sim_per_vec.append(round(get_similarity(vsa[[label[i]]], vsa.bind(samples[k], vsa.codebooks[-1][i])).item(), 3))
+                else:
+                    sim_per_vec.append(round(get_similarity(vsa[[label[i]]], samples[k]).item(), 3))
+
+            # Print results
+            if incorrect:
+                incorrect_count += 1
+                unconverged[1] += 1 if convergence >= it-1 else 0
                 if verbose >= 2:
-                    print(Fore.RED + f"Test {j} Failed: " + f"Label = {label}, Outcome = {outcomes[i]}" + Fore.RESET + f"    Convergence: {convergence}")
+                    print(Fore.BLUE + f"Test {j} Failed: Convergence: {convergence}" + Fore.RESET)
+                    print("Per-vector similarity = {}".format(sim_per_vec))
+                    print(message[:-1])
+                    print(f"Outcome = {outcome}")
             else:
-                unconverged[0] += 1 if convergence == it-1 else 0
+                unconverged[0] += 1 if convergence >= it-1 else 0
                 if verbose >= 3:
-                    print(f"Test {j} Passed: " + f"Label = {label}, Outcome = {outcomes[i]}    Convergence: {convergence}")
+                    print(Fore.BLUE + f"Test {j} Passed: Convergence: {convergence}" + Fore.RESET)
+                    print("Per-vector similarity = {}".format(sim_per_vec))
+                    print(message[:-1])
             j += 1
 
-
-    accuracy = (NUM_SAMPLES - incorrect) / NUM_SAMPLES
+    accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
     if verbose >= 1:
         print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{NUM_SAMPLES}")
 
@@ -147,13 +265,13 @@ def run_factorization(
     with open(cp, "w") as fp:
         pass
 
-    return accuracy, unconverged, (m, d, f, v, n, res, it, norm, act, abs), (accuracy, unconverged)
+    return accuracy, unconverged, (m, d, f, v, n, res, it, norm, act, abs, NUM_VEC_SUPERPOSED), (accuracy, unconverged)
 
 # Test various dimensions, factors, and codevectors
 def test_dim_fac_vec(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}.csv'
+    csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -187,14 +305,14 @@ def test_dim_fac_vec(device="cpu", verbose=0):
                         if v == CODEVECTOR_RANGE[0]:
                             skip_rest_f = True
                     
-                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:val[0],FIELDS[11]:val[1][0],FIELDS[12]:val[1][1],FIELDS[13]:NUM_SAMPLES})
+                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
 
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 def test_noise_iter(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{res_name(RESONATOR_TYPE)}-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}.csv'
+    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{res_name(RESONATOR_TYPE)}-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -227,15 +345,15 @@ def test_noise_iter(device="cpu", verbose=0):
                 if accuracy <= 0.1 and skip_rest_i:
                     skip_rest_n = True
 
-                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:val[0],FIELDS[11]:val[1][0],FIELDS[12]:val[1][1],FIELDS[13]:NUM_SAMPLES})
+                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
 
     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 
 def test_norm_act_res(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, argmax_abs = {ARGMAX_ABS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODEL}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{NOISE_LEVEL}n-{ITERATIONS}i-{argmax_name(ARGMAX_ABS)}.csv'
+    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{NOISE_LEVEL}n-{ITERATIONS}i-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
     if os.path.exists(csv_file):
         print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
         return
@@ -253,7 +371,7 @@ def test_norm_act_res(device="cpu", verbose=0):
                         continue
                     _, _, key, val = ret
 
-                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:val[0],FIELDS[11]:val[1][0],FIELDS[12]:val[1][1],FIELDS[13]:NUM_SAMPLES})
+                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
 
     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
@@ -271,7 +389,7 @@ if __name__ == '__main__':
 
     start = time.time()
     if RUN_MODE == "single":
-        print(Fore.CYAN + f"Test Setup: model = {VSA_MODEL}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, samples = {NUM_SAMPLES}" + Fore.RESET)
+        print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
         run_factorization(device=device, verbose=VERBOSE)
     elif RUN_MODE == "dim-fac-vec":
         test_dim_fac_vec(device=device, verbose=VERBOSE)
