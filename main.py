@@ -200,7 +200,7 @@ def run_factorization(
         dim=d,
         num_factors=f,
         num_codevectors=v,
-        seed = None,
+        seed = SEED,
         device=device
     )
 
@@ -251,10 +251,12 @@ def run_factorization(
             # Calculate the similarity between the input compositional vector and the groundtruth
             # This is to verify the effectiveness of noise
             if NUM_VEC_SUPERPOSED > 1 and ALGO == "ALGO3":
-                _, gt = ds.lookup_algo3(label)
-                similarity = round(get_similarity(gt, data[k], norm).item(), 3)
+                # Get the correctly bound (with ID) groundtruth vectors 
+                gt_vecs = ds.lookup_algo3(label, bundled=False)
+                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], norm).item(), 3)
             else:
                 similarity = round(get_similarity(data[k], vsa.get_vector(label), norm).item(), 3)
+
 
             # Multiple vectors superposed
             for i in range(len(label)):
@@ -266,8 +268,7 @@ def run_factorization(
 
                 # Per vector similarity.
                 if ALGO == "ALGO3":
-                    # bind ID to the groudthtruth vector and compare with the label (compositional vector)
-                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), vsa.bind(data[k], vsa.codebooks[-1][i]), norm).item(), 3))
+                    sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], norm).item(), 3))
                 else:
                     sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], norm).item(), 3))
             

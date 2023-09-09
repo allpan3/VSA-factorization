@@ -18,26 +18,30 @@ class VSADataset(data.Dataset):
         else:
             if algo == "ALGO3":
                 # Sample vectors without the ID, do not superpose (bundle) them yet
-                labels, vectors = self.vsa.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=num_vectors_superposed, bundled=False, noise=noise)
+                self.labels, vectors = self.vsa.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=num_vectors_superposed, bundled=False, noise=noise)
                 for i in range(num_samples):
-                    labels[i], vectors[i] = self.lookup_algo3(labels[i], vectors[i])
-                self.labels = labels
+                    vectors[i] = self.lookup_algo3(self.labels[i], vectors[i])
                 self.data = torch.stack(vectors)
             else:
                 self.labels, self.data = vsa.sample(num_samples,num_vectors=num_vectors_superposed, bundled=True, noise=noise)
             torch.save((self.labels, self.data), sample_file)
 
-    def lookup_algo3(self, label, vectors=None):
+    def lookup_algo3(self, label, vectors=None, bundled=True):
         if vectors is None:
             vectors = [self.vsa.get_vector(label[i]) for i in range(len(label))]
 
         rule = [x for x in itertools.product(range(len(self.vsa.codebooks[0])), range(len(self.vsa.codebooks[1])))]
         # Reorder the positions of the vectors in each label in the ascending order of the first 2 factors
-        label_, vectors_ = list(zip(*sorted(zip(label, vectors), key=lambda k: rule.index(k[0][0:2]))))
-        label_ = list(label_)  # convert tuple to list
+        _, vectors = list(zip(*sorted(zip(label, vectors), key=lambda k: rule.index(k[0][0:2]))))
+        # Remember the original indice of the codebooks for reordering later
+        indices = sorted(range(len(label)), key=lambda k: rule.index(label[k][0:2]))
         # Bind the vector with ID determined by the position in the list
-        vectors_ = self.vsa.multiset(torch.stack([self.vsa.bind(vectors_[j], self.vsa.codebooks[-1][j]) for j in range(len(label))]))
-        return label_, vectors_
+        vectors = [self.vsa.bind(vectors[j], self.vsa.codebooks[-1][j]) for j in range(len(label))]
+        # Return to the original order (for similarity check)
+        vectors = [vectors[i] for i in indices]
+        if bundled:
+            vectors = self.vsa.multiset(torch.stack(vectors))
+        return vectors
 
 
     def __getitem__(self, index: int):
