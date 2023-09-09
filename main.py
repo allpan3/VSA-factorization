@@ -38,18 +38,30 @@ def collate_fn(batch):
     labels = [x[1] for x in batch]
     return samples, labels
 
-def get_similarity(v1, v2):
+def get_similarity(v1, v2, norm=True):
+    """
+    Return the hamming similarity for normalized vectors, and cosine similarity for unnormalized vectors
+    Hamming similarity is linear and should reflect the noise level
+    Cosine similarity is non-linear and may not reflect the noise level
+    """
     if VSA_MODE == "SOFTWARE":
-        dtype = torch.get_default_dtype()
-        self_dot = torch.sum(v1 * v1, dim=-1, dtype=dtype)
-        self_mag = torch.sqrt(self_dot)
-        others_dot = torch.sum(v2 * v2, dim=-1, dtype=dtype)
-        others_mag = torch.sqrt(others_dot)
-        magnitude = self_mag * others_mag
-        magnitude = torch.clamp(magnitude, min=1e-08)
-        return torch.matmul(v1.type(torch.float32), v2.type(torch.float32)) / magnitude
+        if norm:
+            # Compare the normalized vectors
+            positive = torch.tensor(1, device=v1.device)
+            negative = torch.tensor(-1, device=v1.device)
+            v1_ = torch.where(v1 >= 0, positive, negative)
+            v2_ = torch.where(v2 >= 0, positive, negative)
+            return torch.sum(torch.where(v1_ == v2_, 1, 0), dim=-1) / DIM
+        else:
+            v1_dot = torch.sum(v1 * v1, dim=-1)
+            v1_mag = torch.sqrt(v1_dot)
+            v2_dot = torch.sum(v2 * v2, dim=-1)
+            v2_mag = torch.sqrt(v2_dot)
+            magnitude = v1_mag * v2_mag
+            magnitude = torch.clamp(magnitude, min=1e-08)
+            return torch.matmul(v1.type(torch.float32), v2.type(torch.float32)) / magnitude
     else:
-        return torch.sum(torch.where(v1 == v2, 1, -1), dim=-1) / DIM
+        return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
 
 def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
     """
@@ -78,7 +90,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
             convergence[i] += converg
 
             # Get the compositional vector and subtract it from the input
-            vector = vsa[[outcome[i]]]
+            vector = vsa[outcome[i]]
             inputs[i] = inputs[i] - vector 
     
     return outcomes, convergence
@@ -122,6 +134,10 @@ def algo3(vsa, rn, inputs, norm):
     inputs = inputs.clone()
 
     codebooks = vsa.codebooks[0:-1]
+    try:
+        codebooks = torch.stack(codebooks)
+    except:
+        pass
     orig_indices = None
     id_cb = vsa.codebooks[-1]
 
@@ -202,20 +218,20 @@ def run_factorization(
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     j = 0
-    for samples, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
+    for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
         if (NUM_VEC_SUPERPOSED == 1):
-            outcome, convergence = rn(samples, init_estimates, codebooks, orig_indices)
+            outcome, convergence = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
             convergences = [convergence] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences = algo1(vsa, rn, samples, init_estimates, codebooks, orig_indices, norm)
+                outcomes, convergences = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, norm)
             elif ALGO == "ALGO2":
-                outcomes, convergences = algo2(vsa, rn, samples, d, f, codebooks, orig_indices, norm)
+                outcomes, convergences = algo2(vsa, rn, data, d, f, codebooks, orig_indices, norm)
             elif ALGO == "ALGO3":
-                outcomes, convergences = algo3(vsa, rn, samples, norm)
+                outcomes, convergences = algo3(vsa, rn, data, norm)
 
         ## Analyze results
         # Batch
@@ -227,6 +243,14 @@ def run_factorization(
             convergence = convergences[k]
             sim_per_vec = []
 
+            # Calculate the similarity between the input compositional vector and the groundtruth
+            # This is to verify the effectiveness of noise
+            if NUM_VEC_SUPERPOSED > 1 and ALGO == "ALGO3":
+                _, gt = ds.lookup_algo3(label)
+                similarity = round(get_similarity(gt, data[k], norm).item(), 3)
+            else:
+                similarity = round(get_similarity(data[k], vsa[label], norm).item(), 3)
+
             # Multiple vectors superposed
             for i in range(len(label)):
                 if (label[i] not in outcome):
@@ -236,24 +260,28 @@ def run_factorization(
                     message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
                 if ALGO == "ALGO3":
-                    sim_per_vec.append(round(get_similarity(vsa[[label[i]]], vsa.bind(samples[k], vsa.codebooks[-1][i])).item(), 3))
+                    sim_per_vec.append(round(get_similarity(vsa[label[i]], vsa.bind(data[k], vsa.codebooks[-1][i])).item(), 3))
                 else:
-                    sim_per_vec.append(round(get_similarity(vsa[[label[i]]], samples[k]).item(), 3))
-
+                    sim_per_vec.append(round(get_similarity(vsa[label[i]], data[k]).item(), 3))
+            
             # Print results
             if incorrect:
                 incorrect_count += 1
                 unconverged[1] += 1 if convergence >= it-1 else 0
                 if verbose >= 2:
                     print(Fore.BLUE + f"Test {j} Failed: Convergence: {convergence}" + Fore.RESET)
-                    print("Per-vector similarity = {}".format(sim_per_vec))
+                    print("Input similarity = {}".format(similarity))
+                    if NUM_VEC_SUPERPOSED > 1:
+                        print("Per-vector similarity = {}".format(sim_per_vec))
                     print(message[:-1])
                     print(f"Outcome = {outcome}")
             else:
                 unconverged[0] += 1 if convergence >= it-1 else 0
                 if verbose >= 3:
                     print(Fore.BLUE + f"Test {j} Passed: Convergence: {convergence}" + Fore.RESET)
-                    print("Per-vector similarity = {}".format(sim_per_vec))
+                    print("Input similarity = {}".format(similarity))
+                    if NUM_VEC_SUPERPOSED > 1:
+                        print("Per-vector similarity = {}".format(sim_per_vec))
                     print(message[:-1])
             j += 1
 

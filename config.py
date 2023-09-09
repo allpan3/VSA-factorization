@@ -4,7 +4,7 @@ RUN_MODE = "single"
 # RUN_MODE = "noise-iter"
 # RUN_MODE = "norm-act-res"
 
-VERBOSE = 2
+VERBOSE = 3
 CHECKPOINT = False
 NUM_SAMPLES = 400 # test data
 BATCH_SIZE = 1
@@ -13,18 +13,18 @@ BATCH_SIZE = 1
 # Test Parameters
 ##################
 # Multi-vector factorization
-NUM_VEC_SUPERPOSED = 2
+NUM_VEC_SUPERPOSED = 3
 ALGO = "ALGO3" # ALGO1, ALGO2, ALGO3
 TRIALS = 20    # for ALGO2
 
-VSA_MODE = 'HARDWARE' # 'SOFTWARE', 'HARDWARE'
-DIM = 5000
+VSA_MODE = 'SOFTWARE' # 'SOFTWARE', 'HARDWARE'
+DIM = 2000
 FACTORS = 6
-# CODEVECTORS = 10
+CODEVECTORS = 10
 # CODEVECTORS : tuple = (3,3,3,10) 
-CODEVECTORS : tuple = (10,10,10,10,10,2)
-NOISE_LEVEL = 0.0   # compositional vector noise
-ITERATIONS = 1000    # max number of iterations for factorization
+CODEVECTORS : tuple = (10,10,10,10,10,3)
+NOISE_LEVEL = 0.0  # compositional vector noise
+ITERATIONS = 2000    # max number of iterations for factorization
 NORMALIZE = True   # for SOFTWARE mode. Normalize the initial estimate and the input vector (when the input is a bundled vector)
 ACTIVATION = 'NONE'  # 'NONE', 'ABS', 'NONNEG'
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
