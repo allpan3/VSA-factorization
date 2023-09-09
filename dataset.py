@@ -15,7 +15,7 @@ class VSADataset(data.Dataset):
 
         if (os.path.exists(sample_file)):
             self.labels, self.data = torch.load(sample_file)
-        else:   
+        else:
             if algo == "ALGO3":
                 # Sample vectors without the ID, do not superpose (bundle) them yet
                 labels, vectors = self.vsa.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=num_vectors_superposed, bundled=False, noise=noise)
@@ -39,7 +39,6 @@ class VSADataset(data.Dataset):
         vectors_ = self.vsa.multiset(torch.stack([self.vsa.bind(vectors_[j], self.vsa.codebooks[-1][j]) for j in range(len(label))]))
         return label_, vectors_
 
-        
 
     def __getitem__(self, index: int):
         '''

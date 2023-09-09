@@ -43,6 +43,8 @@ def get_similarity(v1, v2, norm=True):
     Return the hamming similarity for normalized vectors, and cosine similarity for unnormalized vectors
     Hamming similarity is linear and should reflect the noise level
     Cosine similarity is non-linear and may not reflect the noise level
+    By default, always normalize the inputs vectors before comparison (only applies to software mode because
+    in hardware mode vectors are always normalized), but allow the option to disable it if that's desired
     """
     if VSA_MODE == "SOFTWARE":
         if norm:
@@ -90,7 +92,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
             convergence[i] += converg
 
             # Get the compositional vector and subtract it from the input
-            vector = vsa[outcome[i]]
+            vector = vsa.get_vector(outcome[i])
             inputs[i] = inputs[i] - vector 
     
     return outcomes, convergence
@@ -145,11 +147,12 @@ def algo3(vsa, rn, inputs, norm):
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    init_estimates = rn.get_init_estimates(codebooks, norm if VSA_MODE == "SOFTWARE" else True, BATCH_SIZE)
+    init_estimates = rn.get_init_estimates(codebooks, BATCH_SIZE)
 
     if norm:
         # This is essentially the same as hardware mode
         inputs = vsa.normalize(inputs)
+        init_estimates = vsa.normalize(init_estimates)
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     convergence = [0] * inputs.size(0)
@@ -213,7 +216,9 @@ def run_factorization(
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    init_estimates = rn.get_init_estimates(codebooks, norm if VSA_MODE == "SOFTWARE" else True, BATCH_SIZE)
+    init_estimates = rn.get_init_estimates(codebooks, BATCH_SIZE)
+    if norm:
+        init_estimates = vsa.normalize(init_estimates)
 
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -249,7 +254,7 @@ def run_factorization(
                 _, gt = ds.lookup_algo3(label)
                 similarity = round(get_similarity(gt, data[k], norm).item(), 3)
             else:
-                similarity = round(get_similarity(data[k], vsa[label], norm).item(), 3)
+                similarity = round(get_similarity(data[k], vsa.get_vector(label), norm).item(), 3)
 
             # Multiple vectors superposed
             for i in range(len(label)):
@@ -259,10 +264,12 @@ def run_factorization(
                 else:
                     message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
+                # Per vector similarity.
                 if ALGO == "ALGO3":
-                    sim_per_vec.append(round(get_similarity(vsa[label[i]], vsa.bind(data[k], vsa.codebooks[-1][i])).item(), 3))
+                    # bind ID to the groudthtruth vector and compare with the label (compositional vector)
+                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), vsa.bind(data[k], vsa.codebooks[-1][i]), norm).item(), 3))
                 else:
-                    sim_per_vec.append(round(get_similarity(vsa[label[i]], data[k]).item(), 3))
+                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], norm).item(), 3))
             
             # Print results
             if incorrect:
