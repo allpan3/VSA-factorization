@@ -76,7 +76,8 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
     inputs = inputs.clone()
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
-    convergence = [0] * inputs.size(0)
+    iters = [[] for _ in range(inputs.size(0))]
+    unconverged = [0] * inputs.size(0)
 
     for _ in range(NUM_VEC_SUPERPOSED):
         if norm:
@@ -84,18 +85,18 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
         else:
             inputs_ = inputs
 
-        outcome, converg = rn(inputs_, init_estimates, codebooks, orig_indices) 
+        outcome, iter = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].append(outcome[i])
-            convergence[i] += converg
-
+            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i])
             inputs[i] = inputs[i] - vector 
     
-    return outcomes, convergence
+    return outcomes, unconverged, iters
 
 def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
     """
@@ -106,7 +107,8 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
     inputs = inputs.clone()
 
     outcomes = [set() for _ in range(inputs.size(0))]  # num of batches
-    convergence = [0] * inputs.size(0)
+    iters = [[] for _ in range(inputs.size(0))]
+    unconverged = [0] * inputs.size(0)
 
     if norm:
         # This is essentially the same as hardware mode
@@ -116,22 +118,46 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
         # Pure random
         init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
 
-        outcome, converg = rn(inputs, init_estimates, codebooks, orig_indices)
+        outcome, iter = rn(inputs, init_estimates, codebooks, orig_indices)
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].add(outcome[i])
-            convergence[i] += converg
-        
+            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            iters[i].append(iter) 
         # As soon as the required number of vectors are extracted, stop
         if all([len(outcomes[i]) == NUM_VEC_SUPERPOSED for i in range(len(outcomes))]):
             break
         
-    return outcomes, convergence
+    return outcomes, unconverged, iters
 
 
 def algo3(vsa, rn, inputs, norm):
     """
+    We want to combine multiple compositional vectors into one superposed vector and be able to extract the original compositional 
+    vectors and their individual factors.
+    In this algorithm we add one more factor of ID on top of the original factors composing the comopsitional vector. We bind each
+    compositional vector with a ID vector before bundling them.
+    The key question is how to decide which ID to bind with which vector. The naive way would just be binding ID0 with
+    the first vector in the label list and so on, but this would cause the same compositional vector to be bound with different
+    IDs when it appears in different positions in the label list. This is fine and the resonator network will still work,
+    but it messes with the perception frontend, which is often done in neural networks, because the "ID" is not associated
+    with the concept represented by the superposed vector. A unique compositional ID (an component concept) can be bound with 
+    different IDs and produce completely different vectors, so there are multiple vectors assoicated with each concept and will
+    cause confusion in the perception frontend. Imagine a combined concept composed of component concepts A, B and C is different
+    from one composed of A, C and B, with the order being the only difference.
+
+    In this algorithm, the ID being bound with each vector in the set is determined by a predefined priority list. Here we construct
+    the priority list by ordering the first two factors. Lower IDs (lower indices in the ID codebook) are assigned to vectors with
+    higher priority. These factors are features of the concept (e.g. the position x, y of an object in an image) and must be unique
+    across all components concepts (e.g. each position in the image can only be occupied by one object). If the second condition is
+    not met, there's still a chance that different IDs are assigned to the same component concept when it's combined in different 
+    contexts, but this often leads to the same confusion that the perception fronend would also face (imagine two objects are overlapped
+    in the same position, the perception frontend will also have trouble distinguishing them).
+
+    With this method, the same compositional vector (component concept) is always bound with the same ID no matter what other vectors it 
+    is superposed with, and the same combo concept is always associated with the same vector regardless how the component concepts are
+    ordered in the label list.
     """
     inputs = inputs.clone()
 
@@ -155,20 +181,21 @@ def algo3(vsa, rn, inputs, norm):
         init_estimates = vsa.normalize(init_estimates)
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
-    convergence = [0] * inputs.size(0)
+    unconverged = [0] * inputs.size(0)
+    iters = [[] for _ in range(inputs.size(0))]
 
     for k in range(NUM_VEC_SUPERPOSED):
         # Unbind the ID
         inputs_ = vsa.bind(inputs, id_cb[k])
 
-        outcome, converg = rn(inputs_, init_estimates, codebooks, orig_indices)
+        outcome, iter = rn(inputs_, init_estimates, codebooks, orig_indices)
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].append(outcome[i])
-            convergence[i] += converg
-        
-    return outcomes, convergence
+            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            iters[i].append(iter) 
+    return outcomes, unconverged, iters
 
 
 def run_factorization(
@@ -226,17 +253,18 @@ def run_factorization(
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
         if (NUM_VEC_SUPERPOSED == 1):
-            outcome, convergence = rn(data, init_estimates, codebooks, orig_indices)
+            outcome, iter = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
-            convergences = [convergence] * BATCH_SIZE
+            convergences = [1 if iter == ITERATIONS-1 else 0] * BATCH_SIZE
+            iters = [iter] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, norm)
+                outcomes, convergences, iters = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, norm)
             elif ALGO == "ALGO2":
-                outcomes, convergences = algo2(vsa, rn, data, d, f, codebooks, orig_indices, norm)
+                outcomes, convergences, iters = algo2(vsa, rn, data, d, f, codebooks, orig_indices, norm)
             elif ALGO == "ALGO3":
-                outcomes, convergences = algo3(vsa, rn, data, norm)
+                outcomes, convergences, iters = algo3(vsa, rn, data, norm)
 
         ## Analyze results
         # Batch
@@ -245,6 +273,7 @@ def run_factorization(
             incorrect = False
             label = labels[k]
             outcome = outcomes[k]
+            iter = iters[k]
             convergence = convergences[k]
             sim_per_vec = []
 
@@ -266,36 +295,41 @@ def run_factorization(
                 else:
                     message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
-                # Per vector similarity.
-                if ALGO == "ALGO3":
-                    sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], norm).item(), 3))
-                else:
-                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], norm).item(), 3))
+                if NUM_VEC_SUPERPOSED > 1:
+                    # Per vector similarity.
+                    if ALGO == "ALGO3":
+                        sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], norm).item(), 3))
+                    else:
+                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], norm).item(), 3))
             
             # Print results
             if incorrect:
                 incorrect_count += 1
-                unconverged[1] += 1 if convergence >= it-1 else 0
+                unconverged[1] += convergence
                 if verbose >= 2:
-                    print(Fore.BLUE + f"Test {j} Failed: Convergence: {convergence}" + Fore.RESET)
+                    print(Fore.BLUE + f"Test {j} Failed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
                     if NUM_VEC_SUPERPOSED > 1:
                         print("Per-vector similarity = {}".format(sim_per_vec))
+                    print(f"unconverged: {convergence}")
+                    print(f"iterations: {iter}")
                     print(message[:-1])
                     print(f"Outcome = {outcome}")
             else:
-                unconverged[0] += 1 if convergence >= it-1 else 0
+                unconverged[0] += convergence
                 if verbose >= 3:
-                    print(Fore.BLUE + f"Test {j} Passed: Convergence: {convergence}" + Fore.RESET)
+                    print(Fore.BLUE + f"Test {j} Passed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
                     if NUM_VEC_SUPERPOSED > 1:
                         print("Per-vector similarity = {}".format(sim_per_vec))
+                    print(f"unconverged: {convergence}")
+                    print(f"iterations: {iter}")
                     print(message[:-1])
             j += 1
 
     accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
     if verbose >= 1:
-        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}/{NUM_SAMPLES}")
+        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}")
 
     # Checkpoint
     with open(cp, "w") as fp:
