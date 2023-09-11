@@ -16,7 +16,7 @@ class VSADataset(data.Dataset):
         if (os.path.exists(sample_file)):
             self.labels, self.data = torch.load(sample_file)
         else:
-            if algo == "ALGO3":
+            if num_vectors_superposed != 1 and algo == "ALGO3":
                 # Sample vectors without the ID, do not superpose (bundle) them yet
                 self.labels, vectors = self.vsa.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=num_vectors_superposed, bundled=False, noise=noise)
                 for i in range(num_samples):
