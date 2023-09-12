@@ -134,30 +134,34 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
 
 def algo3(vsa, rn, inputs, norm):
     """
-    We want to combine multiple compositional vectors into one superposed vector and be able to extract the original compositional 
+    We want to combine multiple (compositional) vectors into one superposed vector and be able to extract the original component
     vectors and their individual factors.
-    In this algorithm we add one more factor of ID on top of the original factors composing the comopsitional vector. We bind each
-    compositional vector with a ID vector before bundling them.
-    The key question is how to decide which ID to bind with which vector. The naive way would just be binding ID0 with
-    the first vector in the label list and so on, but this would cause the same compositional vector to be bound with different
-    IDs when it appears in different positions in the label list. This is fine and the resonator network will still work,
-    but it messes with the perception frontend, which is often done in neural networks, because the "ID" is not associated
-    with the concept represented by the superposed vector. A unique compositional ID (an component concept) can be bound with 
-    different IDs and produce completely different vectors, so there are multiple vectors assoicated with each concept and will
-    cause confusion in the perception frontend. Imagine a combined concept composed of component concepts A, B and C is different
-    from one composed of A, C and B, with the order being the only difference.
+    In this algorithm we add one more factor, ID, on top of the original factors composing the component vector. We bind each
+    vector with an ID vector before bundling them.
+    The key question is how to decide which ID to bind with which vector. The naive way would just be binding ID0 with the first 
+    vector in the label list and so on, but this would cause the same vector to be bound with different IDs when it appears in 
+    different positions/indices in the label list. This is fine and the resonator network will still work, but it messes with the
+    but it messes with the perception frontend, which is often done using neural networks, because the "ID" is not associated
+    with the concept represented by the superposed vector. The same component vector can be bound with different IDs and produce
+    completely different vectors if it's located in a different position in the label list, and the final, superposed vector can 
+    also be different. This means multiple groudtruth vectors can be assoicated with each concept and will cause confusion in the
+    perception frontend. Imagine a concept composed of component vectors A, B and C is different from one composed of A, C and B,
+    with the order being the only difference.
 
     In this algorithm, the ID being bound with each vector in the set is determined by a predefined priority list. Here we construct
     the priority list by ordering the first two factors. Lower IDs (lower indices in the ID codebook) are assigned to vectors with
     higher priority. These factors are features of the concept (e.g. the position x, y of an object in an image) and must be unique
-    across all components concepts (e.g. each position in the image can only be occupied by one object). If the second condition is
-    not met, there's still a chance that different IDs are assigned to the same component concept when it's combined in different 
-    contexts, but this often leads to the same confusion that the perception fronend would also face (imagine two objects are overlapped
-    in the same position, the perception frontend will also have trouble distinguishing them).
+    across all components vectors (e.g. each position in the image can only be occupied by one object). If the second condition is
+    not met, there's still a chance that different IDs are assigned to the same component vector when it's combined (unless we define
+    a tiebreaker, which essentially expands the priority list), but this often represents the same confusion that the perception fronend
+    would also face (imagine two objects are overlapped in the same position, the perception frontend will also have trouble 
+    distinguishing them).
 
-    With this method, the same compositional vector (component concept) is always bound with the same ID no matter what other vectors it 
-    is superposed with, and the same combo concept is always associated with the same vector regardless how the component concepts are
-    ordered in the label list.
+    With this method, for a given concept to encode, no matter how the data was generated, the same component vector is always bound
+    with the same ID, so a unique vector will be produced for that concept as the label for the perception frontend.
+    Note, in different contexts (when superposed with a different set of other vectors), the same component vector may gets assigned
+    to a differnet ID because it is determined by the relative priority of that component in the context. But this is fine because 
+    all we care is to produce unique vectors/labels for the same concept.
     """
     inputs = inputs.clone()
 
