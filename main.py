@@ -253,6 +253,7 @@ def run_factorization(
 
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
+    total_iters = 0
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
@@ -290,9 +291,9 @@ def run_factorization(
             else:
                 similarity = round(get_similarity(data[k], vsa.get_vector(label), norm).item(), 3)
 
-
             # Multiple vectors superposed
             for i in range(len(label)):
+                total_iters += iter[i]
                 if (label[i] not in outcome):
                     incorrect = True
                     message += Fore.RED + "Vector {} is not detected.".format(label[i]) + Fore.RESET + "\n"
@@ -333,7 +334,7 @@ def run_factorization(
 
     accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
     if verbose >= 1:
-        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}")
+        print(f"Accuracy: {accuracy}    Unconverged: {unconverged}    Average iterations: {total_iters / NUM_SAMPLES}")
 
     # Checkpoint
     with open(cp, "w") as fp:
@@ -346,9 +347,6 @@ def test_dim_fac_vec(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
     csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
-    if os.path.exists(csv_file):
-        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
-        return
 
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
@@ -386,10 +384,7 @@ def test_dim_fac_vec(device="cpu", verbose=0):
 def test_noise_iter(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{res_name(RESONATOR_TYPE)}-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
-    if os.path.exists(csv_file):
-        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
-        return
+    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{res_name(RESONATOR_TYPE)}-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
@@ -427,10 +422,7 @@ def test_noise_iter(device="cpu", verbose=0):
 def test_norm_act_res(device="cpu", verbose=0):
     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}v-{NOISE_LEVEL}n-{ITERATIONS}i-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
-    if os.path.exists(csv_file):
-        print(Fore.RED + f"Table {csv_file} already exists, please remove it before running the test." + Fore.RESET)
-        return
+    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{NOISE_LEVEL}n-{ITERATIONS}i-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
