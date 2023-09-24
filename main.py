@@ -84,7 +84,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     for _ in range(TRIALS):
         # Input to resonator must be quantized, make sure don't do it again if it's already quantized
         if not quantized:
-            inputs_ = inputs.quantize()
+            inputs_ = VSA.quantize(inputs)
         else:
             inputs_ = inputs
 
@@ -97,7 +97,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i], quantize=True)
-            inputs[i] = inputs[i] - vector.expand()
+            inputs[i] = inputs[i] - VSA.expand(vector)
     
     return outcomes, unconverged, iters
 
@@ -114,7 +114,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     unconverged = [0] * inputs.size(0)
 
     if quantize:
-        inputs = inputs.quantize()
+        inputs = VSA.quantize(inputs)
 
     # TODO maybe we can throw away cases that don't converge and try again (still up to TRAILS times)
     # because if it doesn't converge, it's most likely not a valid vector, and will stop the rn early since
@@ -182,11 +182,10 @@ def algo3(vsa, rn, inputs, quantize):
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    init_estimates = rn.get_init_estimates(codebooks, BATCH_SIZE)
+    init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(inputs.size(0),1,1)
 
     if quantize:
-        # This is essentially the same as hardware mode
-        inputs = inputs.quantize()
+        inputs = inputs.quantize(inputs)
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     unconverged = [0] * inputs.size(0)
@@ -251,7 +250,7 @@ def run_factorization(
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    init_estimates = rn.get_init_estimates(codebooks).repeat(BATCH_SIZE,1,1)
+    init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(BATCH_SIZE,1,1)
 
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
