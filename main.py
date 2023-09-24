@@ -1,5 +1,4 @@
 import torch
-from torch import Tensor
 from vsa import VSA, Resonator
 from colorama import Fore
 import os.path
@@ -38,23 +37,27 @@ def collate_fn(batch):
     labels = [x[1] for x in batch]
     return samples, labels
 
-def get_similarity(v1, v2, norm=True):
+def get_similarity(v1, v2, quantized):
     """
-    Return the hamming similarity for normalized vectors, and cosine similarity for unnormalized vectors
+    Return the hamming similarity for quantized vectors, and cosine similarity for unquantized vectors
     Hamming similarity is linear and should reflect the noise level
     Cosine similarity is non-linear and may not reflect the noise level
-    By default, always normalize the inputs vectors before comparison (only applies to software mode because
-    in hardware mode vectors are always normalized), but allow the option to disable it if that's desired
     """
-    if VSA_MODE == "SOFTWARE":
-        if norm:
-            # Compare the normalized vectors
+    if quantized:
+        if VSA_MODE == "SOFTWARE":
+            # Compare the quantized vectors
             positive = torch.tensor(1, device=v1.device)
             negative = torch.tensor(-1, device=v1.device)
             v1_ = torch.where(v1 >= 0, positive, negative)
             v2_ = torch.where(v2 >= 0, positive, negative)
             return torch.sum(torch.where(v1_ == v2_, 1, 0), dim=-1) / DIM
         else:
+            positive = torch.tensor(1, device=v1.device)
+            negative = torch.tensor(0, device=v1.device)
+            v1_ = torch.where(v1 >= 0, positive, negative)
+            v2_ = torch.where(v2 >= 0, positive, negative)
+            return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
+    else:
             v1_dot = torch.sum(v1 * v1, dim=-1)
             v1_mag = torch.sqrt(v1_dot)
             v2_dot = torch.sum(v2 * v2, dim=-1)
@@ -62,16 +65,14 @@ def get_similarity(v1, v2, norm=True):
             magnitude = v1_mag * v2_mag
             magnitude = torch.clamp(magnitude, min=1e-08)
             return torch.matmul(v1.type(torch.float32), v2.type(torch.float32)) / magnitude
-    else:
-        return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
+            
 
-def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
+def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     """
     Subtract every extracted vector from the original input and repeat the process NUM_VEC_SUPERPOSED times 
-    This method only works with unnormalized inputs, i.e. hardware mode will not work
-    Initial estiamtes are the multiset of all codevectors
+    This method only works with unquantized inputs, and can choose to quantize the input before running the resonator
+    (We do allow the setup where the input is not quantized just for experiment purpose)
     """
-    assert(VSA_MODE == "SOFTWARE")
 
     inputs = inputs.clone()
 
@@ -79,9 +80,11 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
     iters = [[] for _ in range(inputs.size(0))]
     unconverged = [0] * inputs.size(0)
 
-    for _ in range(NUM_VEC_SUPERPOSED):
-        if norm:
-            inputs_ = vsa.normalize(inputs)
+
+    for _ in range(TRIALS):
+        # Input to resonator must be quantized, make sure don't do it again if it's already quantized
+        if not quantized:
+            inputs_ = inputs.quantize()
         else:
             inputs_ = inputs
 
@@ -93,12 +96,12 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, norm):
             unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
-            vector = vsa.get_vector(outcome[i])
-            inputs[i] = inputs[i] - vector 
+            vector = vsa.get_vector(outcome[i], quantize=True)
+            inputs[i] = inputs[i] - vector.expand()
     
     return outcomes, unconverged, iters
 
-def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
+def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     """
     Run the resonator a predefined number of times with different, randomly generated initial estimates.
     Reduce the final results to remove the duplicated vectors. The remainder are expected to contain all
@@ -110,10 +113,12 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
     iters = [[] for _ in range(inputs.size(0))]
     unconverged = [0] * inputs.size(0)
 
-    if norm:
-        # This is essentially the same as hardware mode
-        inputs = vsa.normalize(inputs)
+    if quantize:
+        inputs = inputs.quantize()
 
+    # TODO maybe we can throw away cases that don't converge and try again (still up to TRAILS times)
+    # because if it doesn't converge, it's most likely not a valid vector, and will stop the rn early since
+    # we've reached the number of objects. It didnt converge most likely due to a bad initial estimate.
     for _ in range(TRIALS):
         # Pure random
         init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
@@ -132,7 +137,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, norm):
     return outcomes, unconverged, iters
 
 
-def algo3(vsa, rn, inputs, norm):
+def algo3(vsa, rn, inputs, quantize):
     """
     We want to combine multiple (compositional) vectors into one superposed vector and be able to extract the original component
     vectors and their individual factors.
@@ -179,16 +184,15 @@ def algo3(vsa, rn, inputs, norm):
 
     init_estimates = rn.get_init_estimates(codebooks, BATCH_SIZE)
 
-    if norm:
+    if quantize:
         # This is essentially the same as hardware mode
-        inputs = vsa.normalize(inputs)
-        init_estimates = vsa.normalize(init_estimates)
+        inputs = inputs.quantize()
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     unconverged = [0] * inputs.size(0)
     iters = [[] for _ in range(inputs.size(0))]
 
-    for k in range(NUM_VEC_SUPERPOSED):
+    for k in range(TRIALS):
         # Unbind the ID
         inputs_ = vsa.bind(inputs, id_cb[k])
 
@@ -210,7 +214,7 @@ def run_factorization(
         n = NOISE_LEVEL,
         it = ITERATIONS,
         res = RESONATOR_TYPE,
-        norm = NORMALIZE,
+        q = QUANTIZE,
         act = ACTIVATION,
         abs = ARGMAX_ABS,
         device = "cpu",
@@ -219,10 +223,10 @@ def run_factorization(
     test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
 
     # Checkpoint
-    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{v_name(v)}-{n}n-{res_name(res)}-{it}i-{norm_name(norm)}-{act_name(act)}-{argmax_name(abs)}-{NUM_VEC_SUPERPOSED}s-{NUM_SAMPLES}s.checkpoint")
+    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{v_name(v)}-{n}n-{res_name(res)}-{it}i-{norm_name(q)}-{act_name(act)}-{argmax_name(abs)}-{NUM_VEC_SUPERPOSED}s-{NUM_SAMPLES}s.checkpoint")
     if CHECKPOINT and os.path.exists(cp):
         if verbose >= 1:
-            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(norm), act_name(act), (argmax_name(abs)), {NUM_VEC_SUPERPOSED}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
+            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(q), act_name(act), (argmax_name(abs)), {NUM_VEC_SUPERPOSED}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
         return
 
     vsa = VSA(
@@ -236,10 +240,10 @@ def run_factorization(
     )
 
     # Generate test samples
-    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, noise=n)
+    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, device=device)
+    rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, early_converge=EARLY_CONVERGE, device=device)
 
     codebooks = None
     orig_indices = None
@@ -247,9 +251,7 @@ def run_factorization(
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    init_estimates = rn.get_init_estimates(codebooks, BATCH_SIZE)
-    if norm:
-        init_estimates = vsa.normalize(init_estimates)
+    init_estimates = rn.get_init_estimates(codebooks).repeat(BATCH_SIZE,1,1)
 
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
@@ -262,14 +264,14 @@ def run_factorization(
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
             convergences = [1 if iter == ITERATIONS-1 else 0] * BATCH_SIZE
-            iters = [iter] * BATCH_SIZE
+            iters = [[iter]] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences, iters = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, norm)
+                outcomes, convergences, iters = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
             elif ALGO == "ALGO2":
-                outcomes, convergences, iters = algo2(vsa, rn, data, d, f, codebooks, orig_indices, norm)
+                outcomes, convergences, iters = algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
-                outcomes, convergences, iters = algo3(vsa, rn, data, norm)
+                outcomes, convergences, iters = algo3(vsa, rn, data, q)
 
         ## Analyze results
         # Batch
@@ -287,9 +289,9 @@ def run_factorization(
             if NUM_VEC_SUPERPOSED > 1 and ALGO == "ALGO3":
                 # Get the correctly bound (with ID) groundtruth vectors 
                 gt_vecs = ds.lookup_algo3(label, bundled=False)
-                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], norm).item(), 3)
+                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], quantize).item(), 3)
             else:
-                similarity = round(get_similarity(data[k], vsa.get_vector(label), norm).item(), 3)
+                similarity = round(get_similarity(data[k], vsa.get_vector(label), quantize).item(), 3)
 
             # Multiple vectors superposed
             for i in range(len(label)):
@@ -303,9 +305,9 @@ def run_factorization(
                 if NUM_VEC_SUPERPOSED > 1:
                     # Per vector similarity.
                     if ALGO == "ALGO3":
-                        sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], norm).item(), 3))
+                        sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], q).item(), 3))
                     else:
-                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], norm).item(), 3))
+                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], q).item(), 3))
             
             # Print results
             if incorrect:
@@ -340,13 +342,13 @@ def run_factorization(
     with open(cp, "w") as fp:
         pass
 
-    return accuracy, unconverged, (m, d, f, v, n, res, it, norm, act, abs, NUM_VEC_SUPERPOSED), (accuracy, unconverged)
+    return accuracy, unconverged, (m, d, f, v, n, res, it, q, act, abs, NUM_VEC_SUPERPOSED), (accuracy, unconverged)
 
 # Test various dimensions, factors, and codevectors
 def test_dim_fac_vec(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
+    csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(QUANTIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
@@ -382,9 +384,9 @@ def test_dim_fac_vec(device="cpu", verbose=0):
         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 def test_noise_iter(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{res_name(RESONATOR_TYPE)}-{norm_name(NORMALIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
+    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{res_name(RESONATOR_TYPE)}-{norm_name(QUANTIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
     with open(csv_file, mode='w') as c:
         writer = csv.DictWriter(c, fieldnames=FIELDS)
@@ -429,10 +431,10 @@ def test_norm_act_res(device="cpu", verbose=0):
         writer.writeheader()
         for r in RESONATOR_TYPE_RANGE:
             skip_rest_n = False
-            for n in NORMALIZE_RANGE:
+            for n in QUANTIZE_RANGE:
                 for a in ACTIVATION_RANGE:
-                    print(Fore.BLUE + f"Running test with resonator = {r}, normalize = {n}, activation = {a}" + Fore.RESET)
-                    ret = run_factorization(res=r, norm=n, act=a, device=device, verbose=verbose)
+                    print(Fore.BLUE + f"Running test with resonator = {r}, quantize = {n}, activation = {a}" + Fore.RESET)
+                    ret = run_factorization(res=r, q=n, act=a, device=device, verbose=verbose)
                     if ret is None:
                         continue
                     _, _, key, val = ret
@@ -455,7 +457,7 @@ if __name__ == '__main__':
 
     start = time.time()
     if RUN_MODE == "single":
-        print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, normalize = {NORMALIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+        print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
         run_factorization(device=device, verbose=VERBOSE)
     elif RUN_MODE == "dim-fac-vec":
         test_dim_fac_vec(device=device, verbose=VERBOSE)
