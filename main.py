@@ -289,9 +289,9 @@ def run_factorization(
             if NUM_VEC_SUPERPOSED > 1 and ALGO == "ALGO3":
                 # Get the correctly bound (with ID) groundtruth vectors 
                 gt_vecs = ds.lookup_algo3(label, bundled=False)
-                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], quantize).item(), 3)
+                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], q).item(), 3)
             else:
-                similarity = round(get_similarity(data[k], vsa.get_vector(label), quantize).item(), 3)
+                similarity = round(get_similarity(data[k], vsa.get_vector(label), q).item(), 3)
 
             # Multiple vectors superposed
             for i in range(len(label)):
