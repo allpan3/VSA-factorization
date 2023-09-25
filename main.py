@@ -74,7 +74,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     (We do allow the setup where the input is not quantized just for experiment purpose)
     """
 
-    inputs = inputs.clone()
+    _inputs = inputs.clone()
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
@@ -84,9 +84,9 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     for _ in range(TRIALS):
         # Input to resonator must be quantized, make sure don't do it again if it's already quantized
         if not quantized:
-            inputs_ = VSA.quantize(inputs)
+            inputs_ = VSA.quantize(_inputs)
         else:
-            inputs_ = inputs
+            inputs_ = _inputs
 
         outcome, iter = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
@@ -97,7 +97,19 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i], quantize=True)
-            inputs[i] = inputs[i] - VSA.expand(vector)
+            _inputs[i] = _inputs[i] - VSA.expand(vector)
+
+    if COUNT_KNOWN: 
+        # Among all the outcomes, select the n cloests to the input
+        # To calculate similarity, must first quantize
+        _inputs = VSA.quantize(inputs)
+        # Split batch results
+        for i in range(len(inputs)):
+            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
+            similarities = vsa.dot_similarity(_inputs[i], vectors)
+            similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
+            # Only keep the top n
+            outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
     
     return outcomes, unconverged, iters
 
@@ -292,9 +304,10 @@ def run_factorization(
             else:
                 similarity = round(get_similarity(data[k], vsa.get_vector(label, q), q).item(), 3)
 
+            total_iters += sum(iter)
+
             # Multiple vectors superposed
             for i in range(len(label)):
-                total_iters += iter[i]
                 if (label[i] not in outcome):
                     incorrect = True
                     message += Fore.RED + "Vector {} is not detected.".format(label[i]) + Fore.RESET + "\n"
