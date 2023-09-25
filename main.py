@@ -185,7 +185,7 @@ def algo3(vsa, rn, inputs, quantize):
     init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(inputs.size(0),1,1)
 
     if quantize:
-        inputs = inputs.quantize(inputs)
+        inputs = VSA.quantize(inputs)
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     unconverged = [0] * inputs.size(0)
@@ -242,7 +242,7 @@ def run_factorization(
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    rn = Resonator(vsa, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, early_converge=EARLY_CONVERGE, device=device)
+    rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, device=device)
 
     codebooks = None
     orig_indices = None
@@ -290,7 +290,7 @@ def run_factorization(
                 gt_vecs = ds.lookup_algo3(label, bundled=False)
                 similarity = round(get_similarity(ds.lookup_algo3(label), data[k], q).item(), 3)
             else:
-                similarity = round(get_similarity(data[k], vsa.get_vector(label), q).item(), 3)
+                similarity = round(get_similarity(data[k], vsa.get_vector(label, q), q).item(), 3)
 
             # Multiple vectors superposed
             for i in range(len(label)):
@@ -306,7 +306,7 @@ def run_factorization(
                     if ALGO == "ALGO3":
                         sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], q).item(), 3))
                     else:
-                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), data[k], q).item(), 3))
+                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i], q), data[k], q).item(), 3))
             
             # Print results
             if incorrect:
