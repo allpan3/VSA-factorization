@@ -98,6 +98,13 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i], quantize=True)
             _inputs[i] = _inputs[i] - VSA.expand(vector)
+        
+        # If energy left in the input is too low, likely no more vectors to be extracted and stop
+        # When inputs are batched, must wait until all inputs are exhausted
+        # print(VSA.energy(_inputs))
+        if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
+            break
+
 
     if COUNT_KNOWN: 
         # Among all the outcomes, select the n cloests to the input
@@ -110,8 +117,19 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
             outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
+    else:
+        _inputs = VSA.quantize(inputs)
+        # Split batch results
+        for i in range(len(inputs)):
+            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
+            similarities = vsa.dot_similarity(_inputs[i], vectors)
+            # print(similarities)
+            # print(outcomes[i])
+            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[j] >= int(vsa.dim * SIMILARITY_THRESHOLD)]
     
-    return outcomes, unconverged, iters
+    counts = [len(outcomes[i]) for i in range(len(outcomes))]
+
+    return outcomes, unconverged, iters, counts
 
 def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     """
@@ -146,7 +164,9 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
         if all([len(outcomes[i]) == NUM_VEC_SUPERPOSED for i in range(len(outcomes))]):
             break
         
-    return outcomes, unconverged, iters
+    # TODO add support for COUNT_KNOWN
+    counts = [len(outcomes[i]) for i in range(len(outcomes))]
+    return outcomes, unconverged, iters, counts
 
 
 def algo3(vsa, rn, inputs, quantize):
@@ -214,7 +234,10 @@ def algo3(vsa, rn, inputs, quantize):
             outcomes[i].append(outcome[i])
             unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
             iters[i].append(iter) 
-    return outcomes, unconverged, iters
+
+    # TODO add support for COUNT_KNOWN
+    counts = [len(outcomes[i]) for i in range(len(outcomes))]
+    return outcomes, unconverged, iters, counts
 
 
 def run_factorization(
@@ -276,13 +299,14 @@ def run_factorization(
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
             convergences = [1 if iter == ITERATIONS-1 else 0] * BATCH_SIZE
             iters = [[iter]] * BATCH_SIZE
+            counts = [1] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences, iters = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
             elif ALGO == "ALGO2":
-                outcomes, convergences, iters = algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts= algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
-                outcomes, convergences, iters = algo3(vsa, rn, data, q)
+                outcomes, convergences, iters, counts = algo3(vsa, rn, data, q)
 
         ## Analyze results
         # Batch
@@ -293,6 +317,7 @@ def run_factorization(
             outcome = outcomes[k]
             iter = iters[k]
             convergence = convergences[k]
+            count = counts[k]
             sim_per_vec = []
 
             # Calculate the similarity between the input compositional vector and the groundtruth
@@ -305,6 +330,10 @@ def run_factorization(
                 similarity = round(get_similarity(data[k], vsa.get_vector(label, q), q).item(), 3)
 
             total_iters += sum(iter)
+
+            if (count != NUM_VEC_SUPERPOSED):
+                incorrect = True
+                message += Fore.RED + "Incorrect number of vectors detected, got {}, expected {}".format(count, NUM_VEC_SUPERPOSED) + Fore.RESET + "\n"
 
             # Multiple vectors superposed
             for i in range(len(label)):
