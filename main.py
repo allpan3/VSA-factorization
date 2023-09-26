@@ -88,12 +88,12 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         else:
             inputs_ = _inputs
 
-        outcome, iter = rn(inputs_, init_estimates, codebooks, orig_indices) 
+        outcome, iter, converge = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].append(outcome[i])
-            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i], quantize=True)
@@ -101,7 +101,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
-        # print(VSA.energy(_inputs))
+        # print(f"{VSA.energy(_inputs)} {converge}")
         if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
             break
 
@@ -153,12 +153,12 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
         # Pure random
         init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
 
-        outcome, iter = rn(inputs, init_estimates, codebooks, orig_indices)
+        outcome, iter, converge = rn(inputs, init_estimates, codebooks, orig_indices)
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].add(outcome[i])
-            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter) 
         # As soon as the required number of vectors are extracted, stop
         if all([len(outcomes[i]) == NUM_VEC_SUPERPOSED for i in range(len(outcomes))]):
@@ -227,12 +227,12 @@ def algo3(vsa, rn, inputs, quantize):
         # Unbind the ID
         inputs_ = vsa.bind(inputs, id_cb[k])
 
-        outcome, iter = rn(inputs_, init_estimates, codebooks, orig_indices)
+        outcome, iter, converge = rn(inputs_, init_estimates, codebooks, orig_indices)
 
         # Split batch results
         for i in range(len(outcome)):
             outcomes[i].append(outcome[i])
-            unconverged[i] += 1 if iter == ITERATIONS - 1 else 0
+            unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter) 
 
     # TODO add support for COUNT_KNOWN
@@ -294,7 +294,7 @@ def run_factorization(
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
 
         if (NUM_VEC_SUPERPOSED == 1):
-            outcome, iter = rn(data, init_estimates, codebooks, orig_indices)
+            outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
             convergences = [1 if iter == ITERATIONS-1 else 0] * BATCH_SIZE
