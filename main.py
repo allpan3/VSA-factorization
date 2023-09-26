@@ -69,25 +69,30 @@ def get_similarity(v1, v2, quantized):
 
 def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     """
-    Subtract every extracted vector from the original input and repeat the process NUM_VEC_SUPERPOSED times 
-    This method only works with unquantized inputs, and can choose to quantize the input before running the resonator
-    (We do allow the setup where the input is not quantized just for experiment purpose)
+    Explain away every extracted vector by subtracting it from the input, followed by another round of factorization.
+    The vector is only subtracted if it's similar enough to the original input. Note this relies on stochasticity to generate
+    a different outcome in the next trial, otherwise the same vector will be extracted again and again.
+    TODO: may consider altering the initial estimate for some extra uncertainty
+    In total, MAX_TRIALS rounds are performed, unless the energy left in the residual input is too low, in which case the process stops early.
+    When the vector count is known, we rank the extracted vectors by their similarity to the input and only keep the top n vectors.
+    When the count is unknown, we only keep the vectors whose similarity to the input (after quantization) is above a certain threshold.
+    This method only works with unquantized inputs, and must quantize the input before running the resonator
     """
 
     _inputs = inputs.clone()
+    inputs_q = VSA.quantize(inputs)
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
     unconverged = [0] * inputs.size(0)
 
+    assert(not quantized)
 
-    for _ in range(TRIALS):
-        # Input to resonator must be quantized, make sure don't do it again if it's already quantized
-        if not quantized:
-            inputs_ = VSA.quantize(_inputs)
-        else:
-            inputs_ = _inputs
-
+    for _ in range(MAX_TRIALS):
+        inputs_ = VSA.quantize(_inputs)
+        # init_estimates = vsa.random(4, 512).repeat(inputs.size(0), 1, 1)
+        # Randomized initial estimate doesn't seem to affect too much
+        # outcome, iter, converge = rn(inputs_, vsa.apply_noise(init_estimates, 0.5), codebooks, orig_indices) 
         outcome, iter, converge = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
         # Split batch results
@@ -97,7 +102,10 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i], quantize=True)
-            _inputs[i] = _inputs[i] - VSA.expand(vector)
+            similarity = vsa.dot_similarity(inputs_q[i], vector)
+            # Only subtract the vector if it's similar enough to the input
+            if similarity >= int(vsa.dim * SIMILARITY_THRESHOLD):
+                _inputs[i] = _inputs[i] - VSA.expand(vector)
         
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
@@ -105,26 +113,22 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
             break
 
-
     if COUNT_KNOWN: 
         # Among all the outcomes, select the n cloests to the input
-        # To calculate similarity, must first quantize
-        _inputs = VSA.quantize(inputs)
         # Split batch results
         for i in range(len(inputs)):
             vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(_inputs[i], vectors)
+            similarities = vsa.dot_similarity(inputs_q[i], vectors)
             # print(similarities)
             # print(outcomes[i])
             similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
             outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
     else:
-        _inputs = VSA.quantize(inputs)
         # Split batch results
         for i in range(len(inputs)):
             vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(_inputs[i], vectors)
+            similarities = vsa.dot_similarity(inputs_q[i], vectors)
             # print(similarities)
             # print(outcomes[i])
             outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[j] >= int(vsa.dim * SIMILARITY_THRESHOLD)]
@@ -151,7 +155,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     # TODO maybe we can throw away cases that don't converge and try again (still up to TRAILS times)
     # because if it doesn't converge, it's most likely not a valid vector, and will stop the rn early since
     # we've reached the number of objects. It didnt converge most likely due to a bad initial estimate.
-    for _ in range(TRIALS):
+    for _ in range(MAX_TRIALS):
         # Pure random
         init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
 
@@ -225,7 +229,7 @@ def algo3(vsa, rn, inputs, quantize):
     unconverged = [0] * inputs.size(0)
     iters = [[] for _ in range(inputs.size(0))]
 
-    for k in range(TRIALS):
+    for k in range(MAX_TRIALS):
         # Unbind the ID
         inputs_ = vsa.bind(inputs, id_cb[k])
 
@@ -239,6 +243,86 @@ def algo3(vsa, rn, inputs, quantize):
 
     # TODO add support for COUNT_KNOWN
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
+    return outcomes, unconverged, iters, counts
+
+def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
+    """
+    This algorithm differs from algo1 in that here we run multiple trials of the resonator network in parallel and choose the outcome
+    with the highest similarity to the input as the outcome of the stage and subtract from the unquantized input, if above the similarity
+    threshold.
+    Note the way I implemented algo1 and algo4 are different from the paper. I subtract the vector only if it's above a threshold. With
+    this prior, this method hasn't really shown any advantage over algo1; the difference is very minimal, and the execution time is longer.
+    """
+    _inputs = inputs.clone()
+    inputs_q = VSA.quantize(inputs)
+
+    outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
+    iters = [[] for _ in range(inputs.size(0))]
+    unconverged = [0] * inputs.size(0)
+
+    assert(not quantized)
+
+    for _ in range(MAX_TRIALS):
+        inputs_ = VSA.quantize(_inputs)
+
+        outcome = [[] for l in range(BATCH_SIZE)]
+        iter = [0] * PARALLEL_TRIALS
+        converge = [0] * PARALLEL_TRIALS
+
+        # TODO: need to merge this into one tensor and run in parallel
+        for l in range(PARALLEL_TRIALS):
+            # init_estimates = vsa.random(4, 512).repeat(inputs.size(0), 1, 1)
+            # out, iter[l], converge[l] = rn(inputs_, vsa.apply_noise(init_estimates, 0.5), codebooks, orig_indices) 
+            out, iter[l], converge[l] = rn(inputs_, init_estimates, codebooks, orig_indices) 
+            for i in range(BATCH_SIZE):
+                outcome[i].append(out[i])
+
+        # Split batch results
+        for i in range(len(outcome)):
+            # Select the one with highest similarity
+            vectors = torch.stack([vsa.get_vector(outcome[i][j]) for j in range(len(outcome[i]))]) 
+            similarities = vsa.dot_similarity(inputs_[i], vectors)
+            # similarities = vsa.dot_similarity(inputs_q[i], vectors)
+            best_idx = torch.max(similarities, dim=-1)[1].item()
+            # print(similarities)
+            # print(outcome[i])
+            outcomes[i].append(outcome[i][best_idx])
+            unconverged[i] += sum([converge[i] == False for i in range(len(converge))])
+            iters[i].append(sum(iter))
+            # Calculate the similarity between the best vector and the quantized original vector
+            similarity = vsa.dot_similarity(inputs_q[i], vectors[best_idx])
+            # # Only subtract the vector if it's similar enough to the input
+            if similarity >= int(vsa.dim * SIMILARITY_THRESHOLD):
+                _inputs[i] = _inputs[i] - VSA.expand(vectors[best_idx])
+        
+        # If energy left in the input is too low, likely no more vectors to be extracted and stop
+        # When inputs are batched, must wait until all inputs are exhausted
+        # print(f"{VSA.energy(_inputs)} {converge}")
+        if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
+            break
+
+    if COUNT_KNOWN: 
+        # Among all the outcomes, select the n cloests to the input
+        # Split batch results
+        for i in range(len(inputs)):
+            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
+            similarities = vsa.dot_similarity(inputs_q[i], vectors)
+            # print(similarities)
+            # print(outcomes[i])
+            similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
+            # Only keep the top n
+            outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
+    else:
+        # Split batch results
+        for i in range(len(inputs)):
+            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
+            similarities = vsa.dot_similarity(inputs_q[i], vectors)
+            # print(similarities)
+            # print(outcomes[i])
+            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[j] >= int(vsa.dim * SIMILARITY_THRESHOLD)]
+    
+    counts = [len(outcomes[i]) for i in range(len(outcomes))]
+
     return outcomes, unconverged, iters, counts
 
 
@@ -309,6 +393,8 @@ def run_factorization(
                 outcomes, convergences, iters, counts= algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
                 outcomes, convergences, iters, counts = algo3(vsa, rn, data, q)
+            elif ALGO == "ALGO4":
+                outcomes, convergences, iters, counts = algo4(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
 
         ## Analyze results
         # Batch
