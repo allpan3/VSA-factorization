@@ -114,6 +114,8 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         for i in range(len(inputs)):
             vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
             similarities = vsa.dot_similarity(_inputs[i], vectors)
+            # print(similarities)
+            # print(outcomes[i])
             similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
             outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
@@ -277,7 +279,7 @@ def run_factorization(
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, device=device)
+    rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, seed=SEED, device=device)
 
     codebooks = None
     orig_indices = None
@@ -297,7 +299,7 @@ def run_factorization(
             outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
-            convergences = [1 if iter == ITERATIONS-1 else 0] * BATCH_SIZE
+            convergences = [1 if converge == False else 0] * BATCH_SIZE
             iters = [[iter]] * BATCH_SIZE
             counts = [1] * BATCH_SIZE
         else:
