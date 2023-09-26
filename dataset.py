@@ -48,10 +48,10 @@ class VSADataset(data.Dataset):
         for i in range(num_samples):
             labels[i] = [tuple([random.randint(0, len(self.vsa.codebooks[i])-1) for i in range(num_factors)]) for j in range(num_vectors)]
             if bundled:
-                vectors[i] = self.vsa.get_vector(labels[i], quantize=quantize) if noise == 0 else self.apply_noise(self.vsa.get_vector(labels[i], quantize=quantize), quantize, noise)
+                vectors[i] = self.vsa.get_vector(labels[i], quantize=quantize) if noise == 0 else self.vsa.apply_noise(self.vsa.get_vector(labels[i], quantize=quantize), noise, quantize)
             else:
                 # Intentionally not stacked since we want to keep the vectors separate
-                vectors[i] = [self.vsa.get_vector(labels[i][j], quantize=True) if noise == 0 else self.apply_noise(self.vsa.get_vector(labels[i][j], quantize=True), True, noise) for j in range(num_vectors)]
+                vectors[i] = [self.vsa.get_vector(labels[i][j], quantize=True) if noise == 0 else self.vsa.apply_noise(self.vsa.get_vector(labels[i][j], quantize=True), noise, True) for j in range(num_vectors)]
         try: 
             vectors = torch.stack(vectors)
         except:
@@ -76,15 +76,7 @@ class VSADataset(data.Dataset):
             vectors = VSA.multiset(torch.stack(vectors), quantize=True)
         return vectors
 
-    def apply_noise(self, vector: Tensor, quantized = True, noise: float = 0.0) -> Tensor:
-        indices = [rand.random() < noise for i in range(vector.size(-1))]
-        if quantized:
-            vector[indices] = VSA.inverse(vector[indices])
-        else:
-            # Not a very good way to apply noise
-            vector[indices] = torch.neg(vector[indices])
-        
-        return vector
+
 
 
     def __getitem__(self, index: int):
