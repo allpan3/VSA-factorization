@@ -344,11 +344,12 @@ def run_factorization(
                     message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
                 if NUM_VEC_SUPERPOSED > 1:
-                    # Per vector similarity.
+                    v = data[k] if q else VSA.quantize(data[k])
+                    # Per vector similarity to the input compound vector. Always compare the quantized vectors
                     if ALGO == "ALGO3":
-                        sim_per_vec.append(round(get_similarity(gt_vecs[i], data[k], q).item(), 3))
+                        sim_per_vec.append(round(get_similarity(gt_vecs[i], v, True).item(), 3))
                     else:
-                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i], q), data[k], q).item(), 3))
+                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), v, True).item(), 3))
             
             # Print results
             if incorrect:
