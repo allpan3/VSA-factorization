@@ -72,44 +72,80 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     Explain away every extracted vector by subtracting it from the input, followed by another round of factorization.
     The vector is only subtracted if it's similar enough to the original input. Note this relies on stochasticity to generate
     a different outcome in the next trial, otherwise the same vector will be extracted again and again.
-    TODO: may consider altering the initial estimate for some extra uncertainty
     In total, MAX_TRIALS rounds are performed, unless the energy left in the residual input is too low, in which case the process stops early.
     When the vector count is known, we rank the extracted vectors by their similarity to the input and only keep the top n vectors.
     When the count is unknown, we only keep the vectors whose similarity to the input (after quantization) is above a certain threshold.
     This method only works with unquantized inputs, and must quantize the input before running the resonator
+
+    Notice we have two variations with regard to detecting whether an answer is similar enough to the input: one is to compare with the original
+    vector, the other is to compare with the remaining vector after explaining away in each iteration. The first method makes more sense in the
+    first glence because that should be the true confidence of a particular answer. But we sometimes see the case that a correct answer falls below
+    the threshold when compared to the original input, especially when the input contains noise. This causes the particualr answer not getting subtracted
+    from the input. When the count is known, this may not cause huge issue as we will rank all answers in the end (it will just take more trials in order
+    to hopefully extract all vectors). However, when the count is unknown, this causes trouble becuase the count is soely determined by the similarity comparison.
+    If we use the second method, the supposedly correct answer will be more similar to the remaining input and more likely be above the threshold. Even if it
+    is still below the treshold and not get explained away, it will still have the chance to get extracted again later, at which time it's more likely that it's
+    even more similar to the remaining input. 
+    Note this solution works well because we are confident that every vector we explain away are truly correct answer (so that the similarity to the remaining input
+    gets higher each time the same vector gets extracted), which is in turn consolidated by enforcing the similarity threshold for explain-away.
+
+    Sometimes, there can be a case where a uncontained vector is very similar to the remaining input after some stages of explain-away, and all prior extracted vectors
+    are correct. This is typically because the input vector is corrupted by noise, but it can even happen when no noise is applied, which means the current dimensionality
+    is not high enough to perfectly support the number of vectors we are trying to superpose - bundled vectors after quantization are no longer orthogonal to a uncontained bound vector.
+    A potential soluition is to adopt a hybrid method - explain away with the remaining input but to select final outcomes using the similarity to the original input.
+    I've seen mixed result with this method - it doesn't always lead to better. Dimensionality is still the key cure.
+    (Different thresholds should be employed; similarity to original input is typically lower as it contains more superposed vectors.)
+    (Sometimes reverting back to the first method can also improve the accuracy)
+
+    Another observation is that when the bundled input is superposed by the same vector multiple times, the result is pushed toward that majority
+    vector and the minority vector ends up being almost orthogonal to the compositional vector, so the similarity is very low. This issue is also
+    alleviated by the second method because we now expect to compare the minority vector with the remaining input after subtracting the majority vector
+    (either some of all of the instances), and the similarity will be high enough for it to be considered valid.
     """
 
     _inputs = inputs.clone()
     inputs_q = VSA.quantize(inputs)
+    init_estimates = init_estimates.clone()
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
     unconverged = [0] * inputs.size(0)
+    sim_to_orig = [[] for _ in range(inputs.size(0))]
+    sim_to_remain = [[] for _ in range(inputs.size(0))]
 
     assert(not quantized)
 
     for _ in range(MAX_TRIALS):
         inputs_ = VSA.quantize(_inputs)
-        # init_estimates = vsa.random(4, 512).repeat(inputs.size(0), 1, 1)
-        # Randomized initial estimate doesn't seem to affect too much
-        # outcome, iter, converge = rn(inputs_, vsa.apply_noise(init_estimates, 0.5), codebooks, orig_indices) 
+        if vsa.mode == "HARDWARE":
+            # This is one way to 
+            init_estimates = vsa.ca90(init_estimates)
+        elif vsa.mode == "SOFTWARE":
+            # Replace this with true random vector
+            init_estimates = vsa.apply_noise(init_estimates, 0.5)
+
         outcome, iter, converge = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
         # Split batch results
         for i in range(len(outcome)):
-            outcomes[i].append(outcome[i])
             unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
-            vector = vsa.get_vector(outcome[i], quantize=True)
-            similarity = vsa.dot_similarity(inputs_q[i], vector)
-            # Only subtract the vector if it's similar enough to the input
-            if similarity >= int(vsa.dim * SIMILARITY_THRESHOLD):
+            vector = vsa.get_vector(outcome[i])
+            sim_orig = vsa.dot_similarity(inputs_q[i], vector)
+            sim_remain = vsa.dot_similarity(inputs_[i], vector)
+            # Only explain away the vector if it's similar enough to the input
+            # Also only consider it as the final candidate if so
+            if sim_remain >= int(vsa.dim * SIM_EXPLAIN_THRESHOLD):
+                outcomes[i].append(outcome[i])
+                sim_to_orig[i].append(sim_orig)
+                sim_to_remain[i].append(sim_remain)
                 _inputs[i] = _inputs[i] - VSA.expand(vector)
         
+            # print(f"outcome = {outcome[i]}, sim_orig = {sim_orig}, sim_remain = {sim_remain}, energy_left = {VSA.energy(_inputs[i])}, {converge}")
+
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
-        # print(f"{VSA.energy(_inputs)} {converge}")
         if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
             break
 
@@ -117,21 +153,18 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # Among all the outcomes, select the n cloests to the input
         # Split batch results
         for i in range(len(inputs)):
-            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(inputs_q[i], vectors)
-            # print(similarities)
             # print(outcomes[i])
-            similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
+            # It's possible that none of the vectors extracted are similar enough to be considered as condidates
+            if len(outcomes[i]) != 0:
+                # Ranking by similarity to the original input makes more sense
+                sim_to_orig[i], outcomes[i] = list(zip(*sorted(zip(sim_to_orig[i], outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
             outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
     else:
         # Split batch results
         for i in range(len(inputs)):
-            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(inputs_q[i], vectors)
-            # print(similarities)
             # print(outcomes[i])
-            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[j] >= int(vsa.dim * SIMILARITY_THRESHOLD)]
+            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if sim_to_orig[i][j] >= int(vsa.dim * SIM_DETECT_THRESHOLD)]
     
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
 
@@ -259,6 +292,7 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
     unconverged = [0] * inputs.size(0)
+    similarities = [[] for l in range(BATCH_SIZE)]
 
     assert(not quantized)
 
@@ -271,8 +305,11 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
         # TODO: need to merge this into one tensor and run in parallel
         for l in range(PARALLEL_TRIALS):
-            # init_estimates = vsa.random(4, 512).repeat(inputs.size(0), 1, 1)
-            # out, iter[l], converge[l] = rn(inputs_, vsa.apply_noise(init_estimates, 0.5), codebooks, orig_indices) 
+            if vsa.mode == "HARDWARE":
+                init_estimates = vsa.ca90(init_estimates)
+            elif vsa.mode == "SOFTWARE":
+                # Replace this with true random vector
+                init_estimates = vsa.apply_noise(init_estimates, 0.5)
             out, iter[l], converge[l] = rn(inputs_, init_estimates, codebooks, orig_indices) 
             for i in range(BATCH_SIZE):
                 outcome[i].append(out[i])
@@ -281,23 +318,25 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         for i in range(len(outcome)):
             # Select the one with highest similarity
             vectors = torch.stack([vsa.get_vector(outcome[i][j]) for j in range(len(outcome[i]))]) 
-            similarities = vsa.dot_similarity(inputs_[i], vectors)
-            # similarities = vsa.dot_similarity(inputs_q[i], vectors)
-            best_idx = torch.max(similarities, dim=-1)[1].item()
-            # print(similarities)
+            sim_remain = vsa.dot_similarity(inputs_[i], vectors)
+            sim_orig = vsa.dot_similarity(inputs_q[i], vectors)
+            best_idx = torch.max(sim_remain, dim=-1)[1].item()
+            # best_idx = torch.max(sim_orig, dim=-1)[1].item()
+            # print("sim_remain: ", sim_remain.tolist())
+            # print("sim_orig: ", sim_orig.tolist())
             # print(outcome[i])
             outcomes[i].append(outcome[i][best_idx])
             unconverged[i] += sum([converge[i] == False for i in range(len(converge))])
             iters[i].append(sum(iter))
-            # Calculate the similarity between the best vector and the quantized original vector
-            similarity = vsa.dot_similarity(inputs_q[i], vectors[best_idx])
+            # similarities[i].append(sim_remain[best_idx])
+            similarities[i].append(sim_orig[best_idx])
             # # Only subtract the vector if it's similar enough to the input
-            if similarity >= int(vsa.dim * SIMILARITY_THRESHOLD):
+            if sim_remain[best_idx] >= int(vsa.dim * SIM_EXPLAIN_THRESHOLD):
                 _inputs[i] = _inputs[i] - VSA.expand(vectors[best_idx])
         
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
-        # print(f"{VSA.energy(_inputs)} {converge}")
+        # print(f"Energy = {VSA.energy(_inputs).item()}, {converge}")
         if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
             break
 
@@ -305,22 +344,16 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # Among all the outcomes, select the n cloests to the input
         # Split batch results
         for i in range(len(inputs)):
-            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(inputs_q[i], vectors)
-            # print(similarities)
             # print(outcomes[i])
-            similarities, outcomes[i] = list(zip(*sorted(zip(similarities, outcomes[i]), key=lambda k: k[0], reverse=True)))
+            similarities[i], outcomes[i] = list(zip(*sorted(zip(similarities[i], outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
             outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
     else:
         # Split batch results
         for i in range(len(inputs)):
-            vectors = torch.stack([vsa.get_vector(outcomes[i][j]) for j in range(len(outcomes[i]))])
-            similarities = vsa.dot_similarity(inputs_q[i], vectors)
-            # print(similarities)
             # print(outcomes[i])
-            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[j] >= int(vsa.dim * SIMILARITY_THRESHOLD)]
-    
+            outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if similarities[i][j] >= int(vsa.dim * SIM_DETECT_THRESHOLD)]
+
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
 
     return outcomes, unconverged, iters, counts
@@ -422,6 +455,8 @@ def run_factorization(
             if (count != NUM_VEC_SUPERPOSED):
                 incorrect = True
                 message += Fore.RED + "Incorrect number of vectors detected, got {}, expected {}".format(count, NUM_VEC_SUPERPOSED) + Fore.RESET + "\n"
+            else:
+                message += f"Correct number of vectors detected: {count} \n"
 
             # Multiple vectors superposed
             for i in range(len(label)):
