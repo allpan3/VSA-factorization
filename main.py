@@ -388,6 +388,8 @@ def run_factorization(
         dim=d,
         num_factors=f,
         num_codevectors=v,
+        ehd_bits = EHD_BITS,
+        sim_bits = SIM_BITS,
         seed = SEED,
         device=device
     )
@@ -396,7 +398,7 @@ def run_factorization(
     ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
-    rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, lambd=LAMBD, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, seed=SEED, device=device)
+    rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, act_val=ACT_VALUE, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, seed=SEED, device=device)
 
     codebooks = None
     orig_indices = None
