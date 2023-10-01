@@ -8,26 +8,41 @@ import random as rand
 from vsa import VSA
 
 class VSADataset(data.Dataset):
-    def __init__(self, root, num_samples, vsa: VSA, algo, num_vectors_superposed=1, quantize=False, noise=0.0):
+    def __init__(self, root, num_samples, vsa: VSA, algo, num_vectors_superposed: int or list or range = 1, quantize=False, noise=0.0):
         super(VSADataset, self).__init__()
 
         self.vsa = vsa
 
-        # Algo 1 and 2 samples are the same, but for convenience we'll generate separate copies
-        sample_file = os.path.join(root, f"samples-{algo}-{num_vectors_superposed}s-{quantize}q-{noise}n-{num_samples}.pt")
+        # Turn num_vectors_superposed into a list if it is an integer, for easier processing
+        if (type(num_vectors_superposed) == int):
+            num_vectors_superposed = [num_vectors_superposed]
 
-        if (os.path.exists(sample_file)):
-            self.labels, self.data = torch.load(sample_file)
+        sample_files = self._get_filename(root, num_vectors_superposed, algo, quantize, noise, num_samples)
+
+        self.labels = []
+        self.data = []
+        if (self._check_exists(sample_files)):
+            for file in sample_files:
+                labels, data = torch.load(file)
+                self.labels += labels
+                self.data += data
         else:
-            if num_vectors_superposed != 1 and algo == "ALGO3":
-                # Sample vectors without the ID, do not superpose (bundle) them yet
-                self.labels, vectors = self.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=num_vectors_superposed, quantize=quantize, bundled=False, noise=noise)
-                for i in range(num_samples):
-                    vectors[i] = self.lookup_algo3(self.labels[i], vectors[i])
-                self.data = torch.stack(vectors)
-            else:
-                self.labels, self.data = self.sample(num_samples,num_vectors=num_vectors_superposed, quantize=quantize, bundled=True, noise=noise)
-            torch.save((self.labels, self.data), sample_file)
+            # When the number of vectors superposed is a single number 1, we want to directly call resonator network and skip algorithm (cuz algos are for multi-vector extraction)
+            for n in num_vectors_superposed:
+                if algo == "ALGO3":
+                    # Sample vectors without the ID, do not superpose (bundle) them yet
+                    labels, vectors = self.sample(num_samples, num_factors=vsa.num_factors-1, num_vectors=n, quantize=quantize, bundled=False, noise=noise)
+                    for i in range(num_samples):
+                        vectors[i] = self.lookup_algo3(labels[i], vectors[i])
+                    data = torch.stack(vectors)
+                else:
+                    labels, data = self.sample(num_samples,num_vectors=n, quantize=quantize, bundled=True, noise=noise)
+
+                torch.save((labels, data), self._get_filename(root, n, algo, quantize, noise, num_samples))
+                self.labels += labels
+                self.data += data
+
+        
 
     def sample(self, num_samples, num_factors = None, num_vectors = 1, quantize = False, bundled = True, noise=0):
         '''
@@ -77,8 +92,6 @@ class VSADataset(data.Dataset):
         return vectors
 
 
-
-
     def __getitem__(self, index: int):
         '''
         Args:
@@ -91,3 +104,22 @@ class VSADataset(data.Dataset):
 
     def __len__(self) -> int:
         return len(self.data)
+
+    def _check_exists(self, filenames: list) -> bool:
+        return all(os.path.exists(file) for file in filenames)
+
+    def _get_filename(self, root, num_vectors_superposed, algo, quantize, noise, num_samples) -> str or list(str):
+        # Algo 3 samples are different from the rest, so we'll generate them separately (when num_vectors_superposed is 1 they are actually the same but we ignore for convenience)
+        if (type(num_vectors_superposed) == int):
+            if algo == "ALGO3":
+                return os.path.join(root, f"samples-{num_vectors_superposed}obj-algo3-{self._name_quantized(quantize)}-{noise}n-{num_samples}.pt")
+            else:
+                return os.path.join(root, f"samples-{num_vectors_superposed}obj-{self._name_quantized(quantize)}-{noise}n-{num_samples}.pt")
+        else:
+            if algo == "ALGO3":
+                return [os.path.join(root, f"samples-{n}obj-algo3-{self._name_quantized(quantize)}-{noise}n-{num_samples}.pt") for n in num_vectors_superposed]
+            else:
+                return [os.path.join(root, f"samples-{n}obj-{self._name_quantized(quantize)}-{noise}n-{num_samples}.pt") for n in num_vectors_superposed]
+
+    def _name_quantized(self, quantized: bool):
+        return "quantized" if quantized else "expanded"

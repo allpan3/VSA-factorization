@@ -11,7 +11,7 @@ from dataset import VSADataset
 from torch.utils.data import DataLoader
 from typing import List
 
-def v_name(num_codevectors):
+def name_v(num_codevectors):
     if type(num_codevectors) == int:
         return f"{num_codevectors}v"
     else:
@@ -20,17 +20,23 @@ def v_name(num_codevectors):
             s += f"{num_codevectors[i]},"
         return s[:-1] + "v"
 
-def norm_name(norm):
-    return "norm" if norm else "no_norm"
+def name_q(quantize):
+    return "quantized" if quantize else "expanded"
 
-def act_name(act):
-    return "act_" + act.lower() if act != "NONE" else "no_act"
+def name_act(act):
+    return act.lower()
 
-def argmax_name(abs):
+def name_argmax(abs):
     return "argmax_abs" if abs else "argmax"
 
-def res_name(res):
+def name_res(res):
     return res[0:3].lower()
+
+def name_obj(n):
+    if type(n) == int:
+        return f"{n}obj"
+    else:
+        return f"{tuple(n)}obj"
 
 def collate_fn(batch):
     samples = torch.stack([x[0] for x in batch], dim=0)
@@ -118,7 +124,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     for _ in range(MAX_TRIALS):
         inputs_ = VSA.quantize(_inputs)
         if vsa.mode == "HARDWARE":
-            # This is one way to 
+            # This is one way to randomize the initial estimates
             init_estimates = vsa.ca90(init_estimates)
         elif vsa.mode == "SOFTWARE":
             # Replace this with true random vector
@@ -373,13 +379,13 @@ def run_factorization(
         device = "cpu",
         verbose = 0):
 
-    test_dir = f"tests/{m}-{d}d-{f}f-{v_name(v)}"
+    test_dir = f"tests/{m}-{d}d-{f}f-{name_v(v)}"
 
     # Checkpoint
-    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{v_name(v)}-{n}n-{res_name(res)}-{it}i-{norm_name(q)}-{act_name(act)}-{argmax_name(abs)}-{NUM_VEC_SUPERPOSED}s-{NUM_SAMPLES}s.checkpoint")
+    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{name_v(v)}-{n}n-{name_res(res)}-{it}i-{name_q(q)}-{name_act(act)}-{name_argmax(abs)}-{name_obj(NUM_VEC_SUPERPOSED)}-{NUM_SAMPLES}s.checkpoint")
     if CHECKPOINT and os.path.exists(cp):
         if verbose >= 1:
-            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, res_name(res), it, norm_name(q), act_name(act), (argmax_name(abs)), {NUM_VEC_SUPERPOSED}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
+            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, name_res(res), it, name_q(q), name_act(act), (name_argmax(abs)), {name_obj(NUM_VEC_SUPERPOSED)}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
         return
 
     vsa = VSA(
@@ -406,6 +412,7 @@ def run_factorization(
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
+    #TODO probably can make this a class variable
     init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(BATCH_SIZE,1,1)
 
     incorrect_count = 0
@@ -413,8 +420,8 @@ def run_factorization(
     total_iters = 0
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
-
-        if (NUM_VEC_SUPERPOSED == 1):
+        # For single-vector factorization, directly run resonator network
+        if (type(NUM_VEC_SUPERPOSED) == int and NUM_VEC_SUPERPOSED == 1):
             outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
@@ -445,7 +452,7 @@ def run_factorization(
 
             # Calculate the similarity between the input compositional vector and the groundtruth
             # This is to verify the effectiveness of noise
-            if NUM_VEC_SUPERPOSED > 1 and ALGO == "ALGO3":
+            if NUM_VEC_SUPERPOSED != 1 and ALGO == "ALGO3":
                 # Get the correctly bound (with ID) groundtruth vectors 
                 gt_vecs = ds.lookup_algo3(label, bundled=False)
                 similarity = round(get_similarity(ds.lookup_algo3(label), data[k], q).item(), 3)
@@ -454,9 +461,9 @@ def run_factorization(
 
             total_iters += sum(iter)
 
-            if (count != NUM_VEC_SUPERPOSED):
+            if (count != len(label)):
                 incorrect = True
-                message += Fore.RED + "Incorrect number of vectors detected, got {}, expected {}".format(count, NUM_VEC_SUPERPOSED) + Fore.RESET + "\n"
+                message += Fore.RED + "Incorrect number of vectors detected, got {}, expected {}".format(count, len(label)) + Fore.RESET + "\n"
             else:
                 message += f"Correct number of vectors detected: {count} \n"
 
@@ -468,13 +475,12 @@ def run_factorization(
                 else:
                     message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
 
-                if NUM_VEC_SUPERPOSED > 1:
-                    v = data[k] if q else VSA.quantize(data[k])
-                    # Per vector similarity to the input compound vector. Always compare the quantized vectors
-                    if ALGO == "ALGO3":
-                        sim_per_vec.append(round(get_similarity(gt_vecs[i], v, True).item(), 3))
-                    else:
-                        sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), v, True).item(), 3))
+                v = data[k] if q else VSA.quantize(data[k])
+                # Per vector similarity to the input compound vector. Always compare the quantized vectors
+                if ALGO == "ALGO3":
+                    sim_per_vec.append(round(get_similarity(gt_vecs[i], v, True).item(), 3))
+                else:
+                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), v, True).item(), 3))
             
             # Print results
             if incorrect:
@@ -483,8 +489,7 @@ def run_factorization(
                 if verbose >= 2:
                     print(Fore.BLUE + f"Test {j} Failed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    if NUM_VEC_SUPERPOSED > 1:
-                        print("Per-vector similarity = {}".format(sim_per_vec))
+                    print("Per-vector similarity = {}".format(sim_per_vec))
                     print(f"unconverged: {convergence}")
                     print(f"iterations: {iter}")
                     print(message[:-1])
@@ -494,8 +499,7 @@ def run_factorization(
                 if verbose >= 3:
                     print(Fore.BLUE + f"Test {j} Passed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    if NUM_VEC_SUPERPOSED > 1:
-                        print("Per-vector similarity = {}".format(sim_per_vec))
+                    print("Per-vector similarity = {}".format(sim_per_vec))
                     print(f"unconverged: {convergence}")
                     print(f"iterations: {iter}")
                     print(message[:-1])
@@ -511,107 +515,106 @@ def run_factorization(
 
     return accuracy, unconverged, (m, d, f, v, n, res, it, q, act, abs, NUM_VEC_SUPERPOSED), (accuracy, unconverged)
 
+# TODO haven't maintained these tests for a while, need to check
 # Test various dimensions, factors, and codevectors
-def test_dim_fac_vec(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+# def test_dim_fac_vec(device="cpu", verbose=0):
+#     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{res_name(RESONATOR_TYPE)}-{ITERATIONS}i-{norm_name(QUANTIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
+#     csv_file = f'tests/table-{VSA_MODE}-{NOISE_LEVEL}n-{name_res(RESONATOR_TYPE)}-{ITERATIONS}i-{name_q(QUANTIZE)}-{name_act(ACTIVATION)}-{name_argmax(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
-    with open(csv_file, mode='w') as c:
-        writer = csv.DictWriter(c, fieldnames=FIELDS)
-        writer.writeheader()
-        for d in DIM_RANGE:
-            skip_rest_f = False
-            for f in FACTOR_RANGE:
-                if not skip_rest_f:
-                    skip_rest_v = False 
-                for v in CODEVECTOR_RANGE:
-                    if skip_rest_v:
-                        if verbose >= 1:
-                            print(Fore.YELLOW + f"Skipping {d}d-{f}f-{v_name(v)}" + Fore.RESET)
-                        continue
+#     with open(csv_file, mode='w') as c:
+#         writer = csv.DictWriter(c, fieldnames=FIELDS)
+#         writer.writeheader()
+#         for d in DIM_RANGE:
+#             skip_rest_f = False
+#             for f in FACTOR_RANGE:
+#                 if not skip_rest_f:
+#                     skip_rest_v = False 
+#                 for v in CODEVECTOR_RANGE:
+#                     if skip_rest_v:
+#                         if verbose >= 1:
+#                             print(Fore.YELLOW + f"Skipping {d}d-{f}f-{name_v(v)}" + Fore.RESET)
+#                         continue
 
-                    if verbose >= 1:
-                        print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
+#                     if verbose >= 1:
+#                         print(Fore.BLUE + f"Running test with {d} dimensions, {f} factors, {v} codevectors" + Fore.RESET)
 
-                    ret = run_factorization(d=d, f=f, v=v, device=device, verbose=verbose)
-                    if ret is None:
-                        continue
-                    accuracy, _, key, val = ret
+#                     ret = run_factorization(d=d, f=f, v=v, device=device, verbose=verbose)
+#                     if ret is None:
+#                         continue
+#                     accuracy, _, key, val = ret
 
-                    # If accuracy is less than 30%, skip the rest of the tests
-                    if accuracy <= 0.3:
-                        skip_rest_v = True
-                        # If the first stage fails, skip the rest of f
-                        if v == CODEVECTOR_RANGE[0]:
-                            skip_rest_f = True
+#                     # If accuracy is less than 30%, skip the rest of the tests
+#                     if accuracy <= 0.3:
+#                         skip_rest_v = True
+#                         # If the first stage fails, skip the rest of f
+#                         if v == CODEVECTOR_RANGE[0]:
+#                             skip_rest_f = True
                     
-                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
+#                     writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
 
-        print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+#         print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
-def test_noise_iter(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+# def test_noise_iter(device="cpu", verbose=0):
+#     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, resonator = {RESONATOR_TYPE}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
 
-    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{res_name(RESONATOR_TYPE)}-{norm_name(QUANTIZE)}-{act_name(ACTIVATION)}-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
+#     csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{name_v(CODEVECTORS)}-{name_res(RESONATOR_TYPE)}-{name_q(QUANTIZE)}-{name_act(ACTIVATION)}-{name_argmax(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
 
-    with open(csv_file, mode='w') as c:
-        writer = csv.DictWriter(c, fieldnames=FIELDS)
-        writer.writeheader()
-        skip_rest_n = False
-        for n in NOISE_RANGE:
-            if not skip_rest_n:
-                skip_rest_i = False
-            for it in ITERATION_RANGE:
-                if skip_rest_i:
-                    if verbose >= 1:
-                        print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
-                    continue
+#     with open(csv_file, mode='w') as c:
+#         writer = csv.DictWriter(c, fieldnames=FIELDS)
+#         writer.writeheader()
+#         skip_rest_n = False
+#         for n in NOISE_RANGE:
+#             if not skip_rest_n:
+#                 skip_rest_i = False
+#             for it in ITERATION_RANGE:
+#                 if skip_rest_i:
+#                     if verbose >= 1:
+#                         print(Fore.YELLOW + f"Skipping {n}n-{it}i" + Fore.RESET)
+#                     continue
                 
-                if verbose >= 1:
-                    print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
+#                 if verbose >= 1:
+#                     print(Fore.BLUE + f"Running test with noise = {n}, iterations = {it}" + Fore.RESET)
 
-                ret = run_factorization(n=n, it=it, device=device, verbose=verbose)
-                if ret is None:
-                    continue
-                accuracy, unconverged, key, val = ret
+#                 ret = run_factorization(n=n, it=it, device=device, verbose=verbose)
+#                 if ret is None:
+#                     continue
+#                 accuracy, unconverged, key, val = ret
 
-                # If no incorrect answer is unconverted, more iterations don't matter
-                if (unconverged[1]) == 0:
-                    skip_rest_i = True
-                # If accuracy is less than 10% for current noise level and more iterations don't have, skip
-                if accuracy <= 0.1 and skip_rest_i:
-                    skip_rest_n = True
+#                 # If no incorrect answer is unconverted, more iterations don't matter
+#                 if (unconverged[1]) == 0:
+#                     skip_rest_i = True
+#                 # If accuracy is less than 10% for current noise level and more iterations don't have, skip
+#                 if accuracy <= 0.1 and skip_rest_i:
+#                     skip_rest_n = True
 
-                writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
+#                 writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
 
-    print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
-
-
-def test_norm_act_res(device="cpu", verbose=0):
-    print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
-
-    csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{v_name(CODEVECTORS)}-{NOISE_LEVEL}n-{ITERATIONS}i-{argmax_name(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
-
-    with open(csv_file, mode='w') as c:
-        writer = csv.DictWriter(c, fieldnames=FIELDS)
-        writer.writeheader()
-        for r in RESONATOR_TYPE_RANGE:
-            skip_rest_n = False
-            for n in QUANTIZE_RANGE:
-                for a in ACTIVATION_RANGE:
-                    print(Fore.BLUE + f"Running test with resonator = {r}, quantize = {n}, activation = {a}" + Fore.RESET)
-                    ret = run_factorization(res=r, q=n, act=a, device=device, verbose=verbose)
-                    if ret is None:
-                        continue
-                    _, _, key, val = ret
-
-                    writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
-
-    print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+#     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
 
 
-# %%
+# def test_norm_act_res(device="cpu", verbose=0):
+#     print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, iterations = {ITERATIONS}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+
+#     csv_file = f'tests/table-{VSA_MODE}-{DIM}d-{FACTORS}f-{name_v(CODEVECTORS)}-{NOISE_LEVEL}n-{ITERATIONS}i-{name_argmax(ARGMAX_ABS)}-{NUM_VEC_SUPERPOSED}s.csv'
+
+#     with open(csv_file, mode='w') as c:
+#         writer = csv.DictWriter(c, fieldnames=FIELDS)
+#         writer.writeheader()
+#         for r in RESONATOR_TYPE_RANGE:
+#             skip_rest_n = False
+#             for n in QUANTIZE_RANGE:
+#                 for a in ACTIVATION_RANGE:
+#                     print(Fore.BLUE + f"Running test with resonator = {r}, quantize = {n}, activation = {a}" + Fore.RESET)
+#                     ret = run_factorization(res=r, q=n, act=a, device=device, verbose=verbose)
+#                     if ret is None:
+#                         continue
+#                     _, _, key, val = ret
+
+#                     writer.writerow({FIELDS[0]:key[0],FIELDS[1]:key[1],FIELDS[2]:key[2],FIELDS[3]:key[3],FIELDS[4]:key[4],FIELDS[5]:key[5],FIELDS[6]:key[6],FIELDS[7]:key[7],FIELDS[8]:key[8],FIELDS[9]:key[9],FIELDS[10]:key[10],FIELDS[11]:val[0],FIELDS[12]:val[1][0],FIELDS[13]:val[1][1],FIELDS[14]:NUM_SAMPLES})
+
+#     print(Fore.GREEN + f"Saved table to {csv_file}" + Fore.RESET)
+
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -624,17 +627,22 @@ if __name__ == '__main__':
 
     start = time.time()
     if RUN_MODE == "single":
-        print(Fore.CYAN + f"Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, noise = {NOISE_LEVEL}, resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, quantize = {QUANTIZE}, activation = {ACTIVATION}, argmax_abs = {ARGMAX_ABS}, superposed = {NUM_VEC_SUPERPOSED}, samples = {NUM_SAMPLES}" + Fore.RESET)
+        print(Fore.CYAN + f"""
+Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, \
+n_superposed = {NUM_VEC_SUPERPOSED}, algo = {ALGO}, max_trials = {MAX_TRIALS}, energy_thresh = {ENERGY_THRESHOLD} \
+similarity_explain_thresh = {SIM_EXPLAIN_THRESHOLD}, similarity_detect_thresh = {SIM_DETECT_THRESHOLD}, \
+expanded_hd_bits = {EHD_BITS}, int_reg_bits = {SIM_BITS}, noise = {NOISE_LEVEL}, quantize = {QUANTIZE}, \
+resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, stochasticity = {STOCHASTICITY}, randomness = {RANDOMNESS}, \
+activation = {ACTIVATION}, act_val = {ACT_VALUE}, early_converge_thresh = {EARLY_CONVERGE}, argmax_abs = {ARGMAX_ABS}, \
+samples = {NUM_SAMPLES}
+""" + Fore.RESET)
         run_factorization(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "dim-fac-vec":
-        test_dim_fac_vec(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "noise-iter":
-        test_noise_iter(device=device, verbose=VERBOSE)
-    elif RUN_MODE == "norm-act-res":
-        test_norm_act_res(device=device, verbose=VERBOSE)
+    # elif RUN_MODE == "dim-fac-vec":
+    #     test_dim_fac_vec(device=device, verbose=VERBOSE)
+    # elif RUN_MODE == "noise-iter":
+    #     test_noise_iter(device=device, verbose=VERBOSE)
+    # elif RUN_MODE == "norm-act-res":
+    #     test_norm_act_res(device=device, verbose=VERBOSE)
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")
-
-    
-# %%

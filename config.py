@@ -8,19 +8,34 @@ RUN_MODE = "single"
 
 VERBOSE = 2
 CHECKPOINT = False
-NUM_SAMPLES = 200 # test data
+NUM_SAMPLES = 50 # test data (for each count)
 BATCH_SIZE = 1
-SEED = 0
+SEED = None
+
+##################
+# VSA Parameters
+##################
+VSA_MODE = 'HARDWARE'   # 'SOFTWARE', 'HARDWARE'
+DIM = 512
+FACTORS = 3
+# CODEVECTORS = 110
+# CODEVECTORS: tuple = (25,30,40,50)
+CODEVECTORS : tuple = (4,5,6)
+# CODEVECTORS : tuple = (3,3,7,10)
+
+EHD_BITS = 8                           # Expanded HD per-dimension bits, for hardware mode
+SIM_BITS = 13         # Similarity value bits, for hardware mode
+assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
 ##################
 # Test Parameters
 ##################
 # Multi-vector factorization
-NUM_VEC_SUPERPOSED = 1
-COUNT_KNOWN = True
+NUM_VEC_SUPERPOSED = range(1,4)           # an integer, a list, or a range
+COUNT_KNOWN = False
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
-MAX_TRIALS = NUM_VEC_SUPERPOSED * 2
+MAX_TRIALS = 10
 PARALLEL_TRIALS = 2
 ENERGY_THRESHOLD = 0.22             # Below this value, it is considered that all vectors have been extracted
 SIM_EXPLAIN_THRESHOLD = 0.15        # Above this value, the vector is explained away
@@ -29,34 +44,26 @@ SIM_DETECT_THRESHOLD = 0.08         # Above this value, the vector is considered
 NOISE_LEVEL = 0.0                   # Apply noise to the input compositional vector
 QUANTIZE = True               # Quantize all bundled vectors, only applies when multiple vectors are superposed
 if NUM_VEC_SUPERPOSED == 1:
+    # For simple-vector factorization, we don't need to sample the expanded vectors (algorithms don't apply)
     QUANTIZE = True
 elif ALGO == "ALGO1" or "ALGO4":
+    # For explain away methods we need to sample the expanded vectors
     QUANTIZE = False
 
-##################
-# VSA Parameters
-##################
-VSA_MODE = 'HARDWARE'   # 'SOFTWARE', 'HARDWARE'
-DIM = 1024
-FACTORS = 2
-CODEVECTORS = 110
-# CODEVECTORS: tuple = (25,30,40,50)
-# CODEVECTORS : tuple = (4,5,6)
-# CODEVECTORS : tuple = (3,3,7,10)
-EHD_BITS = 8                           # Expanded HD per-dimension bits, for hardware mode
-SIM_BITS = int(math.log2(DIM))         # Similarity value bits, for hardware mode
-assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
+assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is known we cannot have different numbers of vectors superposed"
+
+
 ##################
 # Resonator Network Parameters
 ##################
-ITERATIONS = 5000             # max number of iterations for factorization
-STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
+ITERATIONS = 2000             # max number of iterations for factorization
+STOCHASTICITY = "NONE"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
 RANDOMNESS = 0.03             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
-ACTIVATION = 'THRESH_AND_SCALE'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 4                 # Activation value, either a similarity threshold or a scale down factor
+ACTIVATION = 'IDENTITY'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
+ACT_VALUE = 64                 # Activation value, either a similarity threshold or a scale down factor
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
-EARLY_CONVERGE = 0.6         # stop when the estimate similarity reaches this value (out of 1.0)
+EARLY_CONVERGE = None         # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True
 REORDER_CODEBOOKS = False    # Place codebooks with larger number of codevectors first, affects sequential resonator
 
