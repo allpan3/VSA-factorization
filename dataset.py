@@ -16,6 +16,8 @@ class VSADataset(data.Dataset):
         # Turn num_vectors_superposed into a list if it is an integer, for easier processing
         if (type(num_vectors_superposed) == int):
             num_vectors_superposed = [num_vectors_superposed]
+        
+        num_samples = num_samples // len(num_vectors_superposed)
 
         sample_files = self._get_filename(root, num_vectors_superposed, algo, quantize, noise, num_samples)
 
