@@ -45,32 +45,24 @@ def collate_fn(batch):
 
 def get_similarity(v1, v2, quantized):
     """
-    Return the hamming similarity for quantized vectors, and cosine similarity for unquantized vectors
+    Return the hamming similarity.
+    Always compare the similarity between quantized vectors. If inputs are not quantized, quantize them first.
     Hamming similarity is linear and should reflect the noise level
-    Cosine similarity is non-linear and may not reflect the noise level
     """
-    if quantized:
+    if not quantized:
         if VSA_MODE == "SOFTWARE":
             # Compare the quantized vectors
             positive = torch.tensor(1, device=v1.device)
             negative = torch.tensor(-1, device=v1.device)
-            v1_ = torch.where(v1 >= 0, positive, negative)
-            v2_ = torch.where(v2 >= 0, positive, negative)
-            return torch.sum(torch.where(v1_ == v2_, 1, 0), dim=-1) / DIM
+            v1 = torch.where(v1 >= 0, positive, negative)
+            v2 = torch.where(v2 >= 0, positive, negative)
         else:
             positive = torch.tensor(1, device=v1.device)
             negative = torch.tensor(0, device=v1.device)
-            v1_ = torch.where(v1 >= 0, positive, negative)
-            v2_ = torch.where(v2 >= 0, positive, negative)
-            return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
-    else:
-            v1_dot = torch.sum(v1 * v1, dim=-1)
-            v1_mag = torch.sqrt(v1_dot)
-            v2_dot = torch.sum(v2 * v2, dim=-1)
-            v2_mag = torch.sqrt(v2_dot)
-            magnitude = v1_mag * v2_mag
-            magnitude = torch.clamp(magnitude, min=1e-08)
-            return torch.matmul(v1.type(torch.float32), v2.type(torch.float32)) / magnitude
+            v1 = torch.where(v1 >= 0, positive, negative)
+            v2 = torch.where(v2 >= 0, positive, negative)
+
+    return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
             
 
 def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
@@ -79,8 +71,8 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     The vector is only subtracted if it's similar enough to the original input. Note this relies on stochasticity to generate
     a different outcome in the next trial, otherwise the same vector will be extracted again and again.
     In total, MAX_TRIALS rounds are performed, unless the energy left in the residual input is too low, in which case the process stops early.
-    When the vector count is known, we rank the extracted vectors by their similarity to the input and only keep the top n vectors.
-    When the count is unknown, we only keep the vectors whose similarity to the input (after quantization) is above a certain threshold.
+    When the vector count is known, we rank the extracted candidates by their similarity to the input and only keep the top n vectors.
+    When the count is unknown, we only keep the candidates whose similarity to the input (after quantization) are above a certain threshold.
     This method only works with unquantized inputs, and must quantize the input before running the resonator
 
     Notice we have two variations with regard to detecting whether an answer is similar enough to the input: one is to compare with the original
@@ -88,12 +80,20 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     first glence because that should be the true confidence of a particular answer. But we sometimes see the case that a correct answer falls below
     the threshold when compared to the original input, especially when the input contains noise. This causes the particualr answer not getting subtracted
     from the input. When the count is known, this may not cause huge issue as we will rank all answers in the end (it will just take more trials in order
-    to hopefully extract all vectors). However, when the count is unknown, this causes trouble becuase the count is soely determined by the similarity comparison.
+    to hopefully extract all vectors). However, when the count is unknown, this causes trouble because the count is solely determined by the similarity comparison.
     If we use the second method, the supposedly correct answer will be more similar to the remaining input and more likely be above the threshold. Even if it
     is still below the treshold and not get explained away, it will still have the chance to get extracted again later, at which time it's more likely that it's
     even more similar to the remaining input. 
     Note this solution works well because we are confident that every vector we explain away are truly correct answer (so that the similarity to the remaining input
     gets higher each time the same vector gets extracted), which is in turn consolidated by enforcing the similarity threshold for explain-away.
+
+    There are also three ways to select candidates for final ranking/filtering. The first way is to add every extracted vector to the candidate list, regardless of the
+    similarity. The second way is only to add the vector if it's similar enough to the original input. The third way is the same, but compared to the remaining input.
+    The main advantage of second/third method compared to the first is that it reduces the chance which the same vector is added multiple times to the list (assume it
+    only appears once in the true label). This can happen when a candidate is above detection threshold but below explain-away threshold, so it's not subtracted and 
+    will likely be extracted again (this is most likely because different thresholds/similarities are used for explain-away and detection). However, if we know there are
+    no duplicated vectors in the true label, we can do post-processing by removing duplicated vectors.
+    The second/third method usually turns ou to be better
 
     Sometimes, there can be a case where a uncontained vector is very similar to the remaining input after some stages of explain-away, and all prior extracted vectors
     are correct. This is typically because the input vector is corrupted by noise, but it can even happen when no noise is applied, which means the current dimensionality
@@ -118,17 +118,19 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     unconverged = [0] * inputs.size(0)
     sim_to_orig = [[] for _ in range(inputs.size(0))]
     sim_to_remain = [[] for _ in range(inputs.size(0))]
+    debug_message = ""
 
     assert(not quantized)
 
     for _ in range(MAX_TRIALS):
         inputs_ = VSA.quantize(_inputs)
-        if vsa.mode == "HARDWARE":
-            # This is one way to randomize the initial estimates
-            init_estimates = vsa.ca90(init_estimates)
-        elif vsa.mode == "SOFTWARE":
-            # Replace this with true random vector
-            init_estimates = vsa.apply_noise(init_estimates, 0.5)
+        # Randomizing initial estimates do not seem to be critical
+        # if vsa.mode == "HARDWARE":
+        #     # This is one way to randomize the initial estimates
+        #     init_estimates = vsa.ca90(init_estimates)
+        # elif vsa.mode == "SOFTWARE":
+        #     # Replace this with true random vector
+        #     init_estimates = vsa.apply_noise(init_estimates, 0.5)
 
         outcome, iter, converge = rn(inputs_, init_estimates, codebooks, orig_indices) 
 
@@ -142,14 +144,15 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             sim_remain = vsa.dot_similarity(inputs_[i], vector)
             # Only explain away the vector if it's similar enough to the input
             # Also only consider it as the final candidate if so
+            explained = "NOT EXPLAINED"
             if sim_remain >= int(vsa.dim * SIM_EXPLAIN_THRESHOLD):
-                outcomes[i].append(outcome[i])
                 sim_to_orig[i].append(sim_orig)
                 sim_to_remain[i].append(sim_remain)
+                outcomes[i].append(outcome[i])
                 _inputs[i] = _inputs[i] - VSA.expand(vector)
+                explained = "EXPLAINED"
         
-            # print(f"outcome = {outcome[i]}, sim_orig = {sim_orig}, sim_remain = {sim_remain}, energy_left = {VSA.energy(_inputs[i])}, {converge}")
-
+            debug_message += f"DEBUG: outcome = {outcome[i]}, sim_orig = {round(sim_orig.item()/DIM, 3)}, sim_remain = {round(sim_remain.item()/DIM, 3)}, energy_left = {round(VSA.energy(_inputs[i]).item()/DIM,3)}, {converge}, {explained}\n"
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
         if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
@@ -159,7 +162,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # Among all the outcomes, select the n cloests to the input
         # Split batch results
         for i in range(len(inputs)):
-            # print(outcomes[i])
+            debug_message += f"DEBUG: pre-ranked{outcomes[i]}\n"
             # It's possible that none of the vectors extracted are similar enough to be considered as condidates
             if len(outcomes[i]) != 0:
                 # Ranking by similarity to the original input makes more sense
@@ -169,12 +172,12 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     else:
         # Split batch results
         for i in range(len(inputs)):
-            # print(outcomes[i])
+            debug_message += f"DEBUG: pre-filtered: {outcomes[i]}\n"
             outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if sim_to_orig[i][j] >= int(vsa.dim * SIM_DETECT_THRESHOLD)]
     
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
 
-    return outcomes, unconverged, iters, counts
+    return outcomes, unconverged, iters, counts, debug_message
 
 def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     """
@@ -418,6 +421,7 @@ def run_factorization(
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     total_iters = 0
+    debug_message = ""
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
         # For single-vector factorization, directly run resonator network
@@ -430,9 +434,9 @@ def run_factorization(
             counts = [1] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences, iters, counts = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts, debug_message = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
             elif ALGO == "ALGO2":
-                outcomes, convergences, iters, counts= algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts = algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
                 outcomes, convergences, iters, counts = algo3(vsa, rn, data, q)
             elif ALGO == "ALGO4":
@@ -494,6 +498,7 @@ def run_factorization(
                     print(f"iterations: {iter}")
                     print(message[:-1])
                     print(f"Outcome = {outcome}")
+                    print(debug_message)
             else:
                 unconverged[0] += convergence
                 if verbose >= 3:
@@ -503,6 +508,7 @@ def run_factorization(
                     print(f"unconverged: {convergence}")
                     print(f"iterations: {iter}")
                     print(message[:-1])
+                    print(debug_message)
             j += 1
 
     accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
