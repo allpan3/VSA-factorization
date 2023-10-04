@@ -16,13 +16,13 @@ SEED = 0
 # VSA Parameters
 ##################
 VSA_MODE = 'HARDWARE'   # 'SOFTWARE', 'HARDWARE'
-DIM = 1024
+DIM = 2048
 FACTORS = 4
-# CODEVECTORS = 110
+CODEVECTORS = 4
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
-CODEVECTORS : tuple = (3,3,7,10)
-
+# CODEVECTORS : tuple = (3,3,7,10)
+FOLD_DIM = 256
 EHD_BITS = 8                           # Expanded HD per-dimension bits, for hardware mode
 SIM_BITS = 13         # Similarity value bits, for hardware mode
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
@@ -31,7 +31,7 @@ assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 # Test Parameters
 ##################
 # Multi-vector factorization
-NUM_VEC_SUPERPOSED = range(1,7)           # an integer, a list, or a range
+NUM_VEC_SUPERPOSED = range(1,4)           # an integer, a list, or a range
 COUNT_KNOWN = False
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
@@ -42,7 +42,7 @@ ENERGY_THRESHOLD = 0.25             # Below this value, it is considered that al
 SIM_EXPLAIN_THRESHOLD = 0.22        # Above this value, the vector is explained away
 SIM_DETECT_THRESHOLD = 0.12         # Above this value, the vector is considered a valid vector (for when count is unknown)
 
-NOISE_LEVEL = 0.1                   # Apply noise to the input compositional vector
+NOISE_LEVEL = 0.0                   # Apply noise to the input compositional vector
 QUANTIZE = True               # Quantize all bundled vectors, only applies when multiple vectors are superposed
 if NUM_VEC_SUPERPOSED == 1:
     # For simple-vector factorization, we don't need to sample the expanded vectors (algorithms don't apply)
@@ -57,7 +57,7 @@ assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is kn
 ##################
 # Resonator Network Parameters
 ##################
-ITERATIONS = 2000             # max number of iterations for factorization
+ITERATIONS = 200             # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
 RANDOMNESS = 0.03             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
 ACTIVATION = 'THRESH_AND_SCALE'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"

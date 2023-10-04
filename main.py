@@ -11,6 +11,9 @@ from dataset import VSADataset
 from torch.utils.data import DataLoader
 from typing import List
 
+def name_fd(m):
+    return '-' + str(FOLD_DIM) + 'fd' if m=='HARDWARE' else ''
+
 def name_v(num_codevectors):
     if type(num_codevectors) == int:
         return f"{num_codevectors}v"
@@ -199,7 +202,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     # we've reached the number of objects. It didnt converge most likely due to a bad initial estimate.
     for _ in range(MAX_TRIALS):
         # Pure random
-        init_estimates = vsa.random(f, d).repeat(inputs.size(0), 1, 1)
+        init_estimates = vsa.random((f, d)).repeat(inputs.size(0), 1, 1)
 
         outcome, iter, converge = rn(inputs, init_estimates, codebooks, orig_indices)
 
@@ -382,7 +385,7 @@ def run_factorization(
         device = "cpu",
         verbose = 0):
 
-    test_dir = f"tests/{m}-{d}d-{f}f-{name_v(v)}"
+    test_dir = f"tests/{m}-{d}d-{f}f-{name_v(v)}{name_fd(m)}"
 
     # Checkpoint
     cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{name_v(v)}-{n}n-{name_res(res)}-{it}i-{name_q(q)}-{name_act(act)}-{name_argmax(abs)}-{name_obj(NUM_VEC_SUPERPOSED)}-{NUM_SAMPLES}s.checkpoint")
@@ -397,6 +400,7 @@ def run_factorization(
         dim=d,
         num_factors=f,
         num_codevectors=v,
+        fold_dim = FOLD_DIM,
         ehd_bits = EHD_BITS,
         sim_bits = SIM_BITS,
         seed = SEED,
