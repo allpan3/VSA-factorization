@@ -46,7 +46,7 @@ def collate_fn(batch):
     labels = [x[1] for x in batch]
     return samples, labels
 
-def get_similarity(v1, v2, quantized):
+def get_hamming_similarity(v1, v2, quantized):
     """
     Return the hamming similarity.
     Always compare the similarity between quantized vectors. If inputs are not quantized, quantize them first.
@@ -66,7 +66,17 @@ def get_similarity(v1, v2, quantized):
             v2 = torch.where(v2 >= 0, positive, negative)
 
     return torch.sum(torch.where(v1 == v2, 1, 0), dim=-1) / DIM
-            
+
+def get_dot_similarity(v1, v2, quantized):
+    """
+    Return the dot similarity.
+    Always compare the similarity between quantized vectors. If inputs are not quantized, quantize them first.
+    Hamming similarity is linear and should reflect the noise level
+    """
+    if not quantized:
+        return VSA.dot_similarity(VSA.quantize(v1), VSA.quantize(v2)) / DIM
+    else:
+        return VSA.dot_similarity(v1, v2) / DIM
 
 def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     """
@@ -109,7 +119,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     Another observation is that when the bundled input is superposed by the same vector multiple times, the result is pushed toward that majority
     vector and the minority vector ends up being almost orthogonal to the compositional vector, so the similarity is very low. This issue is also
     alleviated by the second method because we now expect to compare the minority vector with the remaining input after subtracting the majority vector
-    (either some of all of the instances), and the similarity will be high enough for it to be considered valid.
+    (either some of all of the instances), and the similarity will be high enough for it to be considered valid. (Detection must compare to the remaining input for this to work)
     """
 
     _inputs = inputs.clone()
@@ -419,15 +429,15 @@ def run_factorization(
     if REORDER_CODEBOOKS:
         codebooks, orig_indices = rn.reorder_codebooks(codebooks)
 
-    #TODO probably can make this a class variable
-    init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(BATCH_SIZE,1,1)
-
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     total_iters = 0
     debug_message = ""
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
+        # TODO Had to put this here to overcome the issue of final batch size being different when not divisible
+        # TODO But this adds unnecessary overhead. May be able to avoid this once we move this inside resonator network class
+        init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(len(labels),1,1)
         # For single-vector factorization, directly run resonator network
         if (type(NUM_VEC_SUPERPOSED) == int and NUM_VEC_SUPERPOSED == 1):
             outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
@@ -463,9 +473,9 @@ def run_factorization(
             if NUM_VEC_SUPERPOSED != 1 and ALGO == "ALGO3":
                 # Get the correctly bound (with ID) groundtruth vectors 
                 gt_vecs = ds.lookup_algo3(label, bundled=False)
-                similarity = round(get_similarity(ds.lookup_algo3(label), data[k], q).item(), 3)
+                similarity = round(get_hamming_similarity(ds.lookup_algo3(label), data[k], q).item(), 3)
             else:
-                similarity = round(get_similarity(data[k], vsa.get_vector(label, q), q).item(), 3)
+                similarity = round(get_hamming_similarity(data[k], vsa.get_vector(label, quantize=q), q).item(), 3)
 
             total_iters += sum(iter)
 
@@ -477,18 +487,18 @@ def run_factorization(
 
             # Multiple vectors superposed
             for i in range(len(label)):
-                if (label[i] not in outcome):
-                    incorrect = True
-                    message += Fore.RED + "Vector {} is not detected.".format(label[i]) + Fore.RESET + "\n"
-                else:
-                    message += "Vector {} is correctly detected.".format(label[i]) + "\n" 
-
                 v = data[k] if q else VSA.quantize(data[k])
                 # Per vector similarity to the input compound vector. Always compare the quantized vectors
                 if ALGO == "ALGO3":
-                    sim_per_vec.append(round(get_similarity(gt_vecs[i], v, True).item(), 3))
+                    sim_per_vec = round(get_dot_similarity(gt_vecs[i], v, True).item(), 3)
                 else:
-                    sim_per_vec.append(round(get_similarity(vsa.get_vector(label[i]), v, True).item(), 3))
+                    sim_per_vec = round(get_dot_similarity(vsa.get_vector(label[i]), v, True).item(), 3)
+
+                if (label[i] not in outcome):
+                    incorrect = True
+                    message += Fore.RED + "Vector {} is not detected. Similarity = {}".format(label[i], sim_per_vec) + Fore.RESET + "\n"
+                else:
+                    message += "Vector {} is correctly detected. Similarity = {}".format(label[i], sim_per_vec) + "\n" 
             
             # Print results
             if incorrect:
@@ -497,7 +507,6 @@ def run_factorization(
                 if verbose >= 2:
                     print(Fore.BLUE + f"Test {j} Failed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    print("Per-vector similarity = {}".format(sim_per_vec))
                     print(f"unconverged: {convergence}")
                     print(f"iterations: {iter}")
                     print(message[:-1])
@@ -508,7 +517,6 @@ def run_factorization(
                 if verbose >= 3:
                     print(Fore.BLUE + f"Test {j} Passed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    print("Per-vector similarity = {}".format(sim_per_vec))
                     print(f"unconverged: {convergence}")
                     print(f"iterations: {iter}")
                     print(message[:-1])

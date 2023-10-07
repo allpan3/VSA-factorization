@@ -8,7 +8,7 @@ RUN_MODE = "single"
 
 VERBOSE = 2
 CHECKPOINT = False
-NUM_SAMPLES = 300 # test data (for each count)
+NUM_SAMPLES = 100  # Number of samples in total (even distributed among vector counts)
 BATCH_SIZE = 1
 SEED = 0
 
@@ -16,14 +16,14 @@ SEED = 0
 # VSA Parameters
 ##################
 VSA_MODE = 'HARDWARE'   # 'SOFTWARE', 'HARDWARE'
-DIM = 2048
+DIM = 1024
 FACTORS = 4
-CODEVECTORS = 4
+# CODEVECTORS = 4
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
-# CODEVECTORS : tuple = (3,3,7,10)
+CODEVECTORS : tuple = (3,3,7,10)
 FOLD_DIM = 256
-EHD_BITS = 8                           # Expanded HD per-dimension bits, for hardware mode
+EHD_BITS = 9                           # Expanded HD per-dimension bits, for hardware mode
 SIM_BITS = 13         # Similarity value bits, for hardware mode
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
@@ -35,7 +35,7 @@ NUM_VEC_SUPERPOSED = range(1,4)           # an integer, a list, or a range
 COUNT_KNOWN = False
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
-MAX_TRIALS = max(NUM_VEC_SUPERPOSED) * 3
+MAX_TRIALS = max(NUM_VEC_SUPERPOSED) + 9
 PARALLEL_TRIALS = 2
 ENERGY_THRESHOLD = 0.25             # Below this value, it is considered that all vectors have been extracted
 # Similarity thresholds are affected by the maximum number of vectors superposed. These values need to be lowered when more vectors are superposed
@@ -57,13 +57,13 @@ assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is kn
 ##################
 # Resonator Network Parameters
 ##################
+RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
 ITERATIONS = 200             # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
-RANDOMNESS = 0.03             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
+RANDOMNESS = 0.04             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
 ACTIVATION = 'THRESH_AND_SCALE'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 32                 # Activation value, either a similarity threshold or a scale down factor
+ACT_VALUE = 16                 # Activation value, either a similarity threshold or a scale down factor
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
-RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
 EARLY_CONVERGE = 0.6         # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True
 REORDER_CODEBOOKS = False    # Place codebooks with larger number of codevectors first, affects sequential resonator
