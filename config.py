@@ -2,26 +2,25 @@
 import math
 
 RUN_MODE = "single"
-# RUN_MODE = "dim-fac-vec" 
-# RUN_MODE = "noise-iter"
-# RUN_MODE = "norm-act-res"
 
 VERBOSE = 2
 CHECKPOINT = False
 NUM_SAMPLES = 100  # Number of samples in total (even distributed among vector counts)
-BATCH_SIZE = 1
+BATCH_SIZE = 2
 SEED = 0
+PROFILING = True # True, False
+PROFILING_SIZE = 20 / BATCH_SIZE   # Divide by batch size to always record the same number of samples
 
 ##################
 # VSA Parameters
 ##################
-VSA_MODE = 'HARDWARE'   # 'SOFTWARE', 'HARDWARE'
+VSA_MODE = 'SOFTWARE'   # 'SOFTWARE', 'HARDWARE'
 DIM = 1024
 FACTORS = 4
-# CODEVECTORS = 4
+CODEVECTORS = 10
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
-CODEVECTORS : tuple = (3,3,7,10)
+# CODEVECTORS : tuple = (3,3,7,10)
 FOLD_DIM = 256
 EHD_BITS = 9                           # Expanded HD per-dimension bits, for hardware mode
 SIM_BITS = 13         # Similarity value bits, for hardware mode
@@ -31,11 +30,11 @@ assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 # Test Parameters
 ##################
 # Multi-vector factorization
-NUM_VEC_SUPERPOSED = range(1,4)           # an integer, a list, or a range
+NUM_VEC_SUPERPOSED = 1           # an integer, a list, or a range
 COUNT_KNOWN = False
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
-MAX_TRIALS = max(NUM_VEC_SUPERPOSED) + 9
+MAX_TRIALS = 9 + (NUM_VEC_SUPERPOSED if type(NUM_VEC_SUPERPOSED) == int else max(NUM_VEC_SUPERPOSED))
 PARALLEL_TRIALS = 2
 ENERGY_THRESHOLD = 0.25             # Below this value, it is considered that all vectors have been extracted
 # Similarity thresholds are affected by the maximum number of vectors superposed. These values need to be lowered when more vectors are superposed
@@ -58,18 +57,18 @@ assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is kn
 # Resonator Network Parameters
 ##################
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
-ITERATIONS = 200             # max number of iterations for factorization
+ITERATIONS = 200              # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
 RANDOMNESS = 0.04             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
-ACTIVATION = 'THRESH_AND_SCALE'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 16                 # Activation value, either a similarity threshold or a scale down factor
+ACTIVATION = 'THRESHOLD'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
+ACT_VALUE = 0                 # Activation value, either a similarity threshold or a scale down factor (positive only)
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
-EARLY_CONVERGE = 0.6         # stop when the estimate similarity reaches this value (out of 1.0)
+EARLY_CONVERGE = 0.6          # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True
 REORDER_CODEBOOKS = False    # Place codebooks with larger number of codevectors first, affects sequential resonator
 
 # In hardware mode, the activation value needs to be a power of two
-if VSA_MODE == "HARDWARE" and (ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESH_AND_SCALE"):
+if VSA_MODE == "HARDWARE" and (ACTIVATION != "IDENTITY"):
     def biggest_power_two(n):
         """Returns the biggest power of two <= n"""
         # if n is a power of two simply return it
@@ -78,6 +77,9 @@ if VSA_MODE == "HARDWARE" and (ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRES
         # else set only the most significant bit
         return int("1" + (len(bin(n)) - 3) * "0", 2)
     ACT_VALUE = biggest_power_two(ACT_VALUE)
+
+if ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESHOLDED_SCALEDOWN":
+    assert ACT_VALUE != 0
 
 # If activation is scaledown, then the early convergence threshold needs to scale down accordingly
 if EARLY_CONVERGE is not None and (ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESHOLDED_SCALEDOWN"):

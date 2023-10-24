@@ -1,5 +1,6 @@
 torch
 torchvision
+torch_tb_profiler
 tqdm
 colorama
 # pyvsa @ git+https://github.com/allpan3/pyvsa.git

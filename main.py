@@ -435,6 +435,8 @@ def run_factorization(
     debug_message = ""
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
+        if PROFILING:
+            prof.step()   # all code between prof.start() and prof.step() are skipped
         # TODO Had to put this here to overcome the issue of final batch size being different when not divisible
         # TODO But this adds unnecessary overhead. May be able to avoid this once we move this inside resonator network class
         init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(len(labels),1,1)
@@ -455,6 +457,15 @@ def run_factorization(
                 outcomes, convergences, iters, counts = algo3(vsa, rn, data, q)
             elif ALGO == "ALGO4":
                 outcomes, convergences, iters, counts = algo4(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
+
+        if PROFILING:
+            # print(f"Test {j} iterations: {iters}")
+            for iter in iters:
+                total_iters += sum(iter)
+            if j == (1 + PROFILING_SIZE) * 1:
+                break
+            j += 1
+            continue
 
         ## Analyze results
         # Batch
@@ -522,6 +533,10 @@ def run_factorization(
                     print(message[:-1])
                     print(debug_message)
             j += 1
+
+    if PROFILING:
+        # print(f"Total iterations:")
+        return
 
     accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
     if verbose >= 1:
@@ -644,6 +659,17 @@ if __name__ == '__main__':
     print(f"Running tests on {device}, batch_size = {BATCH_SIZE}")
 
     start = time.time()
+
+    if PROFILING:
+        prof = torch.profiler.profile(
+                    activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+                    schedule=torch.profiler.schedule(wait=0, warmup=1, active=PROFILING_SIZE, repeat=1, skip_first=1),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler'),
+                    record_shapes=True,
+                    profile_memory=True,
+                    with_stack=True)
+        prof.start()
+
     if RUN_MODE == "single":
         print(Fore.CYAN + f"""
 Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, \
@@ -661,6 +687,11 @@ samples = {NUM_SAMPLES}
     #     test_noise_iter(device=device, verbose=VERBOSE)
     # elif RUN_MODE == "norm-act-res":
     #     test_norm_act_res(device=device, verbose=VERBOSE)
+
+    if PROFILING:
+        prof.stop()
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")

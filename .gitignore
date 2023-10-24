@@ -1,4 +1,5 @@
 .python-version
 .vscode
 tests/
+profiler/
 __pycache__
