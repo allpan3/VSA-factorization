@@ -4,25 +4,28 @@ import math
 RUN_MODE = "single"
 
 VERBOSE = 2
-CHECKPOINT = False
 NUM_SAMPLES = 100  # Number of samples in total (even distributed among vector counts)
-BATCH_SIZE = 2
+BATCH_SIZE = 1
 SEED = 0
 PROFILING = True # True, False
-PROFILING_SIZE = 20 / BATCH_SIZE   # Divide by batch size to always record the same number of samples
+PROFILING_SIZE = NUM_SAMPLES // BATCH_SIZE   # Divide by batch size to always record the same number of samples
+if PROFILING:
+    NUM_SAMPLES = (PROFILING_SIZE + 1) * BATCH_SIZE  # To account for the warmup batch
+
+assert(NUM_SAMPLES % BATCH_SIZE == 0)
 
 ##################
 # VSA Parameters
 ##################
 VSA_MODE = 'SOFTWARE'   # 'SOFTWARE', 'HARDWARE'
-DIM = 1024
-FACTORS = 4
-CODEVECTORS = 10
+DIM = 8192
+FACTORS = 5
+CODEVECTORS = 20
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
 # CODEVECTORS : tuple = (3,3,7,10)
 FOLD_DIM = 256
-EHD_BITS = 9                           # Expanded HD per-dimension bits, for hardware mode
+EHD_BITS = 9          # Expanded HD per-dimension bits, for hardware mode
 SIM_BITS = 13         # Similarity value bits, for hardware mode
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
@@ -57,11 +60,11 @@ assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is kn
 # Resonator Network Parameters
 ##################
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
-ITERATIONS = 200              # max number of iterations for factorization
+ITERATIONS = 5000              # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
-RANDOMNESS = 0.04             # randomness for stochasticity, value of standard deviation, 0.02 ~ 0.05
+RANDOMNESS = 0.01             # randomness for stochasticity, value of standard deviation, 0.01 ~ 0.05, TODO: make this absoulte value
 ACTIVATION = 'THRESHOLD'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 0                 # Activation value, either a similarity threshold or a scale down factor (positive only)
+ACT_VALUE = 64                # Activation value, either a similarity threshold or a scale down factor (positive only)
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
 EARLY_CONVERGE = 0.6          # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True

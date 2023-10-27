@@ -128,10 +128,10 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
-    unconverged = [0] * inputs.size(0)
+    convergence = [[] for _ in range(inputs.size(0))]
     sim_to_orig = [[] for _ in range(inputs.size(0))]
     sim_to_remain = [[] for _ in range(inputs.size(0))]
-    debug_message = ""
+    debug_message = [""] * inputs.size(0)
 
     assert(not quantized)
 
@@ -149,7 +149,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
         # Split batch results
         for i in range(len(outcome)):
-            unconverged[i] += 1 if converge == False else 0
+            convergence[i].append(converge)
             iters[i].append(iter)
             # Get the compositional vector and subtract it from the input
             vector = vsa.get_vector(outcome[i])
@@ -164,18 +164,18 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
                 outcomes[i].append(outcome[i])
                 _inputs[i] = _inputs[i] - VSA.expand(vector)
                 explained = "EXPLAINED"
-        
-            debug_message += f"DEBUG: outcome = {outcome[i]}, sim_orig = {round(sim_orig.item()/DIM, 3)}, sim_remain = {round(sim_remain.item()/DIM, 3)}, energy_left = {round(VSA.energy(_inputs[i]).item()/DIM,3)}, {converge}, {explained}\n"
+
+            debug_message[i] += f"DEBUG: outcome = {outcome[i]}, sim_orig = {round(sim_orig.item()/DIM, 3)}, sim_remain = {round(sim_remain.item()/DIM, 3)}, energy_left = {round(VSA.energy(_inputs[i]).item()/DIM,3)}, {converge}, {explained}\n"
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
-        if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
+        if (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
             break
 
     if COUNT_KNOWN: 
         # Among all the outcomes, select the n cloests to the input
         # Split batch results
         for i in range(len(inputs)):
-            debug_message += f"DEBUG: pre-ranked{outcomes[i]}\n"
+            debug_message[i] += f"DEBUG: pre-ranked{outcomes[i]}\n"
             # It's possible that none of the vectors extracted are similar enough to be considered as condidates
             if len(outcomes[i]) != 0:
                 # Ranking by similarity to the original input makes more sense
@@ -185,12 +185,12 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     else:
         # Split batch results
         for i in range(len(inputs)):
-            debug_message += f"DEBUG: pre-filtered: {outcomes[i]}\n"
+            debug_message[i] += f"DEBUG: pre-filtered: {outcomes[i]}\n"
             outcomes[i] = [outcomes[i][j] for j in range(len(outcomes[i])) if sim_to_orig[i][j] >= int(vsa.dim * SIM_DETECT_THRESHOLD)]
     
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
 
-    return outcomes, unconverged, iters, counts, debug_message
+    return outcomes, convergence, iters, counts, debug_message
 
 def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
     """
@@ -202,7 +202,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
 
     outcomes = [set() for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
-    unconverged = [0] * inputs.size(0)
+    convergence = [[] for _ in range(inputs.size(0))]
 
     if quantize:
         inputs = VSA.quantize(inputs)
@@ -218,8 +218,8 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
 
         # Split batch results
         for i in range(len(outcome)):
+            convergence[i].append(converge)
             outcomes[i].add(outcome[i])
-            unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter) 
         # As soon as the required number of vectors are extracted, stop
         if all([len(outcomes[i]) == NUM_VEC_SUPERPOSED for i in range(len(outcomes))]):
@@ -227,7 +227,7 @@ def algo2(vsa, rn, inputs, d, f, codebooks, orig_indices, quantize):
         
     # TODO add support for COUNT_KNOWN
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
-    return outcomes, unconverged, iters, counts
+    return outcomes, convergence, iters, counts
 
 
 def algo3(vsa, rn, inputs, quantize):
@@ -280,8 +280,8 @@ def algo3(vsa, rn, inputs, quantize):
     if quantize:
         inputs = VSA.quantize(inputs)
 
+    convergence = [[] for _ in range(inputs.size(0))]
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
-    unconverged = [0] * inputs.size(0)
     iters = [[] for _ in range(inputs.size(0))]
 
     for k in range(MAX_TRIALS):
@@ -292,13 +292,13 @@ def algo3(vsa, rn, inputs, quantize):
 
         # Split batch results
         for i in range(len(outcome)):
+            convergence[i].append(converge)
             outcomes[i].append(outcome[i])
-            unconverged[i] += 1 if converge == False else 0
             iters[i].append(iter) 
 
     # TODO add support for COUNT_KNOWN
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
-    return outcomes, unconverged, iters, counts
+    return outcomes, convergence, iters, counts
 
 def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     """
@@ -311,9 +311,9 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
     _inputs = inputs.clone()
     inputs_q = VSA.quantize(inputs)
 
+    convergence = [[] for _ in range(inputs.size(0))]
     outcomes = [[] for _ in range(inputs.size(0))]  # num of batches
     iters = [[] for _ in range(inputs.size(0))]
-    unconverged = [0] * inputs.size(0)
     similarities = [[] for l in range(BATCH_SIZE)]
 
     assert(not quantized)
@@ -347,8 +347,8 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             # print("sim_remain: ", sim_remain.tolist())
             # print("sim_orig: ", sim_orig.tolist())
             # print(outcome[i])
+            convergence[i].append(converge)  # TODO: this is likely not correct
             outcomes[i].append(outcome[i][best_idx])
-            unconverged[i] += sum([converge[i] == False for i in range(len(converge))])
             iters[i].append(sum(iter))
             # similarities[i].append(sim_remain[best_idx])
             similarities[i].append(sim_orig[best_idx])
@@ -359,7 +359,7 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
         # print(f"Energy = {VSA.energy(_inputs).item()}, {converge}")
-        if (all(VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD))):
+        if (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
             break
 
     if COUNT_KNOWN: 
@@ -378,7 +378,7 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
     counts = [len(outcomes[i]) for i in range(len(outcomes))]
 
-    return outcomes, unconverged, iters, counts
+    return outcomes, convergence, iters, counts
 
 
 def run_factorization(
@@ -397,13 +397,6 @@ def run_factorization(
 
     test_dir = f"tests/{m}-{d}d-{f}f-{name_v(v)}{name_fd(m)}"
 
-    # Checkpoint
-    cp = os.path.join(test_dir, f"{m}-{d}d-{f}f-{name_v(v)}-{n}n-{name_res(res)}-{it}i-{name_q(q)}-{name_act(act)}-{name_argmax(abs)}-{name_obj(NUM_VEC_SUPERPOSED)}-{NUM_SAMPLES}s.checkpoint")
-    if CHECKPOINT and os.path.exists(cp):
-        if verbose >= 1:
-            print(Fore.LIGHTYELLOW_EX + f"Test with {(m, d, f, v, n, name_res(res), it, name_q(q), name_act(act), (name_argmax(abs)), {name_obj(NUM_VEC_SUPERPOSED)}, NUM_SAMPLES)} already exists, skipping..." + Fore.RESET)
-        return
-
     vsa = VSA(
         root=test_dir,
         mode=m,
@@ -418,7 +411,7 @@ def run_factorization(
     )
 
     # Generate test samples
-    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n)
+    ds = VSADataset(test_dir, NUM_SAMPLES, vsa, algo=ALGO, num_vectors_superposed=NUM_VEC_SUPERPOSED, quantize=q, noise=n, device=device)
     dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     rn = Resonator(vsa, m, type=res, activation=act, iterations=it, argmax_abs=abs, act_val=ACT_VALUE, stoch=STOCHASTICITY, randomness=RANDOMNESS, early_converge=EARLY_CONVERGE, seed=SEED, device=device)
@@ -432,7 +425,7 @@ def run_factorization(
     incorrect_count = 0
     unconverged = [0, 0] # Unconverged successful, unconverged failed
     total_iters = 0
-    debug_message = ""
+    debug_messages = None
     j = 0
     for data, labels in tqdm(dl, desc=f"Progress", leave=True if verbose >= 1 else False):
         if PROFILING:
@@ -445,12 +438,12 @@ def run_factorization(
             outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
             outcomes = [[outcome[x]] for x in range(BATCH_SIZE)]
-            convergences = [1 if converge == False else 0] * BATCH_SIZE
+            convergences = [[converge]] * BATCH_SIZE
             iters = [[iter]] * BATCH_SIZE
             counts = [1] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences, iters, counts, debug_message = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts, debug_messages = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
             elif ALGO == "ALGO2":
                 outcomes, convergences, iters, counts = algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
@@ -478,6 +471,10 @@ def run_factorization(
             convergence = convergences[k]
             count = counts[k]
             sim_per_vec = []
+            if debug_messages is not None:
+                debug_message = debug_messages[k]
+            else:
+                debug_message = ""
 
             # Calculate the similarity between the input compositional vector and the groundtruth
             # This is to verify the effectiveness of noise
@@ -514,22 +511,22 @@ def run_factorization(
             # Print results
             if incorrect:
                 incorrect_count += 1
-                unconverged[1] += convergence
+                unconverged[1] += sum([x == False for x in convergence])
                 if verbose >= 2:
                     print(Fore.BLUE + f"Test {j} Failed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    print(f"unconverged: {convergence}")
-                    print(f"iterations: {iter}")
+                    print(f"Convergence: {convergence}")
+                    print(f"Iterations: {iter}")
                     print(message[:-1])
                     print(f"Outcome = {outcome}")
                     print(debug_message)
             else:
-                unconverged[0] += convergence
+                unconverged[1] += sum([x == False for x in convergence])
                 if verbose >= 3:
                     print(Fore.BLUE + f"Test {j} Passed" + Fore.RESET)
                     print("Input similarity = {}".format(similarity))
-                    print(f"unconverged: {convergence}")
-                    print(f"iterations: {iter}")
+                    print(f"Convergence: {convergence}")
+                    print(f"Iterations: {iter}")
                     print(message[:-1])
                     print(debug_message)
             j += 1
@@ -541,10 +538,6 @@ def run_factorization(
     accuracy = (NUM_SAMPLES - incorrect_count) / NUM_SAMPLES
     if verbose >= 1:
         print(f"Accuracy: {accuracy}    Unconverged: {unconverged}    Average iterations: {total_iters / NUM_SAMPLES}")
-
-    # Checkpoint
-    with open(cp, "w") as fp:
-        pass
 
     return accuracy, unconverged, (m, d, f, v, n, res, it, q, act, abs, NUM_VEC_SUPERPOSED), (accuracy, unconverged)
 
@@ -664,10 +657,11 @@ if __name__ == '__main__':
         prof = torch.profiler.profile(
                     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(wait=0, warmup=1, active=PROFILING_SIZE, repeat=1, skip_first=1),
-                    on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler'),
-                    record_shapes=True,
-                    profile_memory=True,
-                    with_stack=True)
+                    # on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler'),
+                    # record_shapes=True,
+                    # with_stack=True,
+                    # profile_memory=True
+                    )
         prof.start()
 
     if RUN_MODE == "single":
@@ -690,7 +684,7 @@ samples = {NUM_SAMPLES}
 
     if PROFILING:
         prof.stop()
-        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
 
     end = time.time()
