@@ -8,7 +8,7 @@ import random as rand
 from vsa import VSA
 
 class VSADataset(data.Dataset):
-    def __init__(self, root, num_samples, vsa: VSA, algo, num_vectors_superposed: int or list or range = 1, quantize=False, noise=0.0):
+    def __init__(self, root, num_samples, vsa: VSA, algo, num_vectors_superposed: int or list or range = 1, quantize=False, noise=0.0, device=None):
         super(VSADataset, self).__init__()
 
         self.vsa = vsa
@@ -25,7 +25,7 @@ class VSADataset(data.Dataset):
         self.data = []
         if (self._check_exists(sample_files)):
             for file in sample_files:
-                labels, data = torch.load(file)
+                labels, data = torch.load(file, map_location=device)
                 self.labels += labels
                 self.data += data
         else:
