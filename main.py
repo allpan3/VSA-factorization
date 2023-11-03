@@ -434,6 +434,8 @@ def run_factorization(
         # TODO But this adds unnecessary overhead. May be able to avoid this once we move this inside resonator network class
         init_estimates = rn.get_init_estimates(codebooks).unsqueeze(0).repeat(len(labels),1,1)
         # For single-vector factorization, directly run resonator network
+        # * This causes single-vector tests to run a single RN, which can lead to wrong answers. A similiarity threshold based filtering like algo1
+        # * still benefits even when there's only one vector. For now, we can config [1] instead of 1 to make it run algo1
         if (type(NUM_VEC_SUPERPOSED) == int and NUM_VEC_SUPERPOSED == 1):
             outcome, iter, converge = rn(data, init_estimates, codebooks, orig_indices)
             # Make them the same format as multi-vector for easier parsing
