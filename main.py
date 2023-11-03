@@ -669,7 +669,7 @@ if __name__ == '__main__':
 Test Setup: mode = {VSA_MODE}, dim = {DIM}, factors = {FACTORS}, codevectors = {CODEVECTORS}, \
 n_superposed = {NUM_VEC_SUPERPOSED}, algo = {ALGO}, max_trials = {MAX_TRIALS}, energy_thresh = {ENERGY_THRESHOLD} \
 similarity_explain_thresh = {SIM_EXPLAIN_THRESHOLD}, similarity_detect_thresh = {SIM_DETECT_THRESHOLD}, \
-expanded_hd_bits = {EHD_BITS}, int_reg_bits = {SIM_BITS}, noise = {NOISE_LEVEL}, quantize = {QUANTIZE}, \
+fold_dim = {FOLD_DIM}, ehd_bits = {EHD_BITS}, sim_reg_bits = {SIM_BITS}, noise = {NOISE_LEVEL}, quantize = {QUANTIZE}, \
 resonator = {RESONATOR_TYPE}, iterations = {ITERATIONS}, stochasticity = {STOCHASTICITY}, randomness = {RANDOMNESS}, \
 activation = {ACTIVATION}, act_val = {ACT_VALUE}, early_converge_thresh = {EARLY_CONVERGE}, argmax_abs = {ARGMAX_ABS}, \
 samples = {NUM_SAMPLES}
