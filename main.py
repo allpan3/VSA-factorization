@@ -175,7 +175,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # Among all the outcomes, select the n cloests to the input
         # Split batch results
         for i in range(len(inputs)):
-            debug_message[i] += f"DEBUG: pre-ranked{outcomes[i]}\n"
+            debug_message[i] += f"DEBUG: pre-ranked: {outcomes[i]}\n"
             # It's possible that none of the vectors extracted are similar enough to be considered as condidates
             if len(outcomes[i]) != 0:
                 # Ranking by similarity to the original input makes more sense
@@ -646,7 +646,7 @@ def run_factorization(
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cpu")
+    device = torch.device("cpu")
     # torch.set_default_device(device)
 
     os.makedirs("tests", exist_ok=True)
@@ -660,8 +660,8 @@ if __name__ == '__main__':
                     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                     schedule=torch.profiler.schedule(wait=0, warmup=1, active=PROFILING_SIZE, repeat=1, skip_first=1),
                     # on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler'),
-                    # record_shapes=True,
                     # with_stack=True,
+                    # record_shapes=True,
                     # profile_memory=True
                     )
         prof.start()
@@ -686,8 +686,7 @@ samples = {NUM_SAMPLES}
 
     if PROFILING:
         prof.stop()
-        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
-
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")

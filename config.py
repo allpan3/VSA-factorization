@@ -20,7 +20,7 @@ assert(NUM_SAMPLES % BATCH_SIZE == 0)
 VSA_MODE = 'SOFTWARE'   # 'SOFTWARE', 'HARDWARE'
 DIM = 8192
 FACTORS = 5
-CODEVECTORS = 20
+CODEVECTORS = 15
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
 # CODEVECTORS : tuple = (3,3,7,10)
@@ -34,7 +34,7 @@ assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 ##################
 # Multi-vector factorization
 NUM_VEC_SUPERPOSED = 1           # an integer, a list, or a range
-COUNT_KNOWN = False
+COUNT_KNOWN = True
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
 MAX_TRIALS = 9 + (NUM_VEC_SUPERPOSED if type(NUM_VEC_SUPERPOSED) == int else max(NUM_VEC_SUPERPOSED))
