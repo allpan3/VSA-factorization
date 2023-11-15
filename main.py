@@ -135,7 +135,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
     assert(not quantized)
 
-    for _ in range(MAX_TRIALS):
+    for _ in range(NUM_VEC_SUPERPOSED):
         inputs_ = VSA.quantize(_inputs)
         # Randomizing initial estimates do not seem to be critical
         # if vsa.mode == "HARDWARE":
@@ -168,7 +168,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
             debug_message[i] += f"DEBUG: outcome = {outcome[i]}, sim_orig = {round(sim_orig.item()/DIM, 3)}, sim_remain = {round(sim_remain.item()/DIM, 3)}, energy_left = {round(VSA.energy(_inputs[i]).item()/DIM,3)}, {converge}, {explained}\n"
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
-        if (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
+        if ENERGY_THRESHOLD is not None and (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
             break
 
     if COUNT_KNOWN: 
@@ -359,7 +359,7 @@ def algo4(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
         # If energy left in the input is too low, likely no more vectors to be extracted and stop
         # When inputs are batched, must wait until all inputs are exhausted
         # print(f"Energy = {VSA.energy(_inputs).item()}, {converge}")
-        if (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
+        if ENERGY_THRESHOLD is not None and (VSA.energy(_inputs) <= int(vsa.dim * ENERGY_THRESHOLD)).all():
             break
 
     if COUNT_KNOWN: 
@@ -686,7 +686,7 @@ samples = {NUM_SAMPLES}
 
     if PROFILING:
         prof.stop()
-        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
 
     end = time.time()
     print(f"Time elapsed: {end - start}s")

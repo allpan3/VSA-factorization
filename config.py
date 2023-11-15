@@ -7,7 +7,7 @@ VERBOSE = 2
 NUM_SAMPLES = 100  # Number of samples in total (even distributed among vector counts)
 BATCH_SIZE = 1
 SEED = 0
-PROFILING = True # True, False
+PROFILING = False # True, False
 PROFILING_SIZE = NUM_SAMPLES // BATCH_SIZE   # Divide by batch size to always record the same number of samples
 if PROFILING:
     NUM_SAMPLES = (PROFILING_SIZE + 1) * BATCH_SIZE  # To account for the warmup batch
@@ -25,7 +25,8 @@ CODEVECTORS = 15
 # CODEVECTORS : tuple = (4,5,6)
 # CODEVECTORS : tuple = (3,3,7,10)
 FOLD_DIM = 256
-EHD_BITS = 9          # Expanded HD per-dimension bits, for hardware mode
+EHD_BITS = 8          # Expanded HD per-dimension bits, for hardware mode
+                      # This depends on dimensionality and affects the performance in a big way. So far I've seen a huge difference between 8 and 9 bits for 2048 dims
 SIM_BITS = 13         # Similarity value bits, for hardware mode
 assert(type(CODEVECTORS) == int or len(CODEVECTORS) == FACTORS)
 
@@ -39,10 +40,10 @@ COUNT_KNOWN = True
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
 MAX_TRIALS = 9 + (NUM_VEC_SUPERPOSED if type(NUM_VEC_SUPERPOSED) == int else max(NUM_VEC_SUPERPOSED))
 PARALLEL_TRIALS = 2
-ENERGY_THRESHOLD = 0.25             # Below this value, it is considered that all vectors have been extracted
+ENERGY_THRESHOLD = 0.2             # Below this value, it is considered that all vectors have been extracted
 # Similarity thresholds are affected by the maximum number of vectors superposed. These values need to be lowered when more vectors are superposed
-SIM_EXPLAIN_THRESHOLD = 0.22        # Above this value, the vector is explained away
-SIM_DETECT_THRESHOLD = 0.12         # Above this value, the vector is considered a valid vector (for when count is unknown)
+SIM_EXPLAIN_THRESHOLD = 0.2        # Above this value, the vector is explained away
+SIM_DETECT_THRESHOLD = 0.15         # Above this value, the vector is considered a valid vector (for when count is unknown)
 
 NOISE_LEVEL = 0.0                   # Apply noise to the input compositional vector
 QUANTIZE = True               # Quantize all bundled vectors, only applies when multiple vectors are superposed
@@ -64,7 +65,7 @@ ITERATIONS = 5000              # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
 RANDOMNESS = 0.01             # randomness for stochasticity, value of standard deviation, 0.01 ~ 0.05, TODO: make this absoulte value
 ACTIVATION = 'THRESHOLD'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 64                # Activation value, either a similarity threshold or a scale down factor (positive only)
+ACT_VALUE = 32                # Activation value, either a similarity threshold or a scale down factor (positive only)
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
 EARLY_CONVERGE = 0.6          # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True
@@ -81,11 +82,11 @@ if VSA_MODE == "HARDWARE" and (ACTIVATION != "IDENTITY"):
         return int("1" + (len(bin(n)) - 3) * "0", 2)
     ACT_VALUE = biggest_power_two(ACT_VALUE)
 
-if ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESHOLDED_SCALEDOWN":
+if ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESH_AND_SCALE":
     assert ACT_VALUE != 0
 
 # If activation is scaledown, then the early convergence threshold needs to scale down accordingly
-if EARLY_CONVERGE is not None and (ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESHOLDED_SCALEDOWN"):
+if EARLY_CONVERGE is not None and (ACTIVATION == "SCALEDOWN" or ACTIVATION == "THRESH_AND_SCALE"):
     EARLY_CONVERGE = EARLY_CONVERGE / ACT_VALUE
 
 ###############
