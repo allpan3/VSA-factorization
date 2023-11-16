@@ -4,10 +4,10 @@ import math
 RUN_MODE = "single"
 
 VERBOSE = 2
-NUM_SAMPLES = 100  # Number of samples in total (even distributed among vector counts)
-BATCH_SIZE = 1
+NUM_SAMPLES = 100 # Number of samples in total (even distributed among vector counts)
+BATCH_SIZE = 50
 SEED = 0
-PROFILING = False # True, False
+PROFILING = True # True, False
 PROFILING_SIZE = NUM_SAMPLES // BATCH_SIZE   # Divide by batch size to always record the same number of samples
 if PROFILING:
     NUM_SAMPLES = (PROFILING_SIZE + 1) * BATCH_SIZE  # To account for the warmup batch
@@ -18,12 +18,12 @@ assert(NUM_SAMPLES % BATCH_SIZE == 0)
 # VSA Parameters
 ##################
 VSA_MODE = 'SOFTWARE'   # 'SOFTWARE', 'HARDWARE'
-DIM = 8192
-FACTORS = 5
-CODEVECTORS = 15
+DIM = 1024
+FACTORS = 4
+# CODEVECTORS = 15
 # CODEVECTORS: tuple = (25,30,40,50)
 # CODEVECTORS : tuple = (4,5,6)
-# CODEVECTORS : tuple = (3,3,7,10)
+CODEVECTORS : tuple = (3,3,7,10)
 FOLD_DIM = 256
 EHD_BITS = 8          # Expanded HD per-dimension bits, for hardware mode
                       # This depends on dimensionality and affects the performance in a big way. So far I've seen a huge difference between 8 and 9 bits for 2048 dims
@@ -38,7 +38,8 @@ NUM_VEC_SUPERPOSED = 1           # an integer, a list, or a range
 COUNT_KNOWN = True
 # OVERLAP = False
 ALGO = "ALGO1" # ALGO1, ALGO2, ALGO3, ALGO4
-MAX_TRIALS = 9 + (NUM_VEC_SUPERPOSED if type(NUM_VEC_SUPERPOSED) == int else max(NUM_VEC_SUPERPOSED))
+# MAX_TRIALS = 9 + (NUM_VEC_SUPERPOSED if type(NUM_VEC_SUPERPOSED) == int else max(NUM_VEC_SUPERPOSED))
+MAX_TRIALS = 1
 PARALLEL_TRIALS = 2
 ENERGY_THRESHOLD = 0.2             # Below this value, it is considered that all vectors have been extracted
 # Similarity thresholds are affected by the maximum number of vectors superposed. These values need to be lowered when more vectors are superposed
@@ -54,7 +55,8 @@ elif ALGO == "ALGO1" or "ALGO4":
     # For explain away methods we need to sample the expanded vectors
     QUANTIZE = False
 
-assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is known we cannot have different numbers of vectors superposed"
+if not COUNT_KNOWN and type(NUM_VEC_SUPERPOSED) != int:
+    assert BATCH_SIZE == 1, "When the count is known and different numbers of vectors superposed, we don't yet support batching because counts may be different in a batch"
 
 
 ##################
@@ -63,9 +65,9 @@ assert not COUNT_KNOWN or type(NUM_VEC_SUPERPOSED) == int, "When the count is kn
 RESONATOR_TYPE = "SEQUENTIAL" # "CONCURRENT", "SEQUENTIAL"
 ITERATIONS = 5000              # max number of iterations for factorization
 STOCHASTICITY = "SIMILARITY"  # apply stochasticity: "NONE", "VECTOR", "SIMILARITY"
-RANDOMNESS = 0.01             # randomness for stochasticity, value of standard deviation, 0.01 ~ 0.05, TODO: make this absoulte value
+RANDOMNESS = 0.04             # randomness for stochasticity, value of standard deviation, 0.01 ~ 0.05, TODO: make this absoulte value
 ACTIVATION = 'THRESHOLD'      # 'IDENTITY', 'THRESHOLD', 'SCALEDOWN', "THRESH_AND_SCALE"
-ACT_VALUE = 32                # Activation value, either a similarity threshold or a scale down factor (positive only)
+ACT_VALUE = 8                # Activation value, either a similarity threshold or a scale down factor (positive only)
                               # Typical threshold range = [0, 100], scale down factor is the divisor, which is effectively a threshold
 EARLY_CONVERGE = 0.6          # stop when the estimate similarity reaches this value (out of 1.0)
 ARGMAX_ABS = True

@@ -78,7 +78,7 @@ def get_dot_similarity(v1, v2, quantized):
     else:
         return VSA.dot_similarity(v1, v2) / DIM
 
-def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
+def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized, n_superposed):
     """
     Explain away every extracted vector by subtracting it from the input, followed by another round of factorization.
     The vector is only subtracted if it's similar enough to the original input. Note this relies on stochasticity to generate
@@ -135,7 +135,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
 
     assert(not quantized)
 
-    for _ in range(NUM_VEC_SUPERPOSED):
+    for _ in range(MAX_TRIALS):
         inputs_ = VSA.quantize(_inputs)
         # Randomizing initial estimates do not seem to be critical
         # if vsa.mode == "HARDWARE":
@@ -181,7 +181,7 @@ def algo1(vsa, rn, inputs, init_estimates, codebooks, orig_indices, quantized):
                 # Ranking by similarity to the original input makes more sense
                 sim_to_orig[i], outcomes[i] = list(zip(*sorted(zip(sim_to_orig[i], outcomes[i]), key=lambda k: k[0], reverse=True)))
             # Only keep the top n
-            outcomes[i] = outcomes[i][0:NUM_VEC_SUPERPOSED]
+            outcomes[i] = outcomes[i][0:n_superposed]
     else:
         # Split batch results
         for i in range(len(inputs)):
@@ -445,7 +445,7 @@ def run_factorization(
             counts = [1] * BATCH_SIZE
         else:
             if ALGO == "ALGO1":
-                outcomes, convergences, iters, counts, debug_messages = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q)
+                outcomes, convergences, iters, counts, debug_messages = algo1(vsa, rn, data, init_estimates, codebooks, orig_indices, q, len(labels[0]))
             elif ALGO == "ALGO2":
                 outcomes, convergences, iters, counts = algo2(vsa, rn, data, d, f, codebooks, orig_indices, q)
             elif ALGO == "ALGO3":
@@ -646,7 +646,7 @@ def run_factorization(
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    # device = torch.device("cpu")
     # torch.set_default_device(device)
 
     os.makedirs("tests", exist_ok=True)
